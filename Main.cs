@@ -108,6 +108,7 @@ public class NavMeshCreator
 
 public partial class Main : Node2D
 {
+    float[][] HeightData;
 
     // Called when the node enters the scene tree for the first time.
     public override void _Ready()
@@ -193,13 +194,17 @@ public partial class Main : Node2D
             GD.Print(str);
         }*/
         var size = 10;
+        HeightData = new float[size][];
         for (int y = 0; y < size; y++)
         {
+            HeightData[y] = new float[size];
             for (int x = 0; x < size; x++)
             {
-                tilemap.SetCell(0, new Vector2I(x, y), 2, new Vector2I(x, y));
+                HeightData[y][x] = y*size+x+1;
+                //tilemap.SetCell(0, new Vector2I(x, y), 2, new Vector2I(x, y));
             }
         }
+        UpdateMap();
     }
 
     // Called every frame. 'delta' is the elapsed time since the previous frame.
@@ -208,11 +213,36 @@ public partial class Main : Node2D
         GD.Print("Hello world");
     }
 
+    public override void _UnhandledKeyInput(InputEvent @event)
+    {
+        base._UnhandledKeyInput(@event);
+        SmoothTerrain(5, 5, 2, 1);
+        UpdateMap();
+    }
 
+    void SetCell(int x, int y, int value)
+    {
+        var v = value - 1;
+        var vy = (int) v / 10;
+        var vx = v % 10;
+        tilemap.SetCell(0, new Vector2I(x, y), 2, new Vector2I(vx, vy));
+    }
+
+    void UpdateMap()
+    {
+
+
+        for (int y = 0; y < HeightData.Length; y++)
+        {
+            for (int x = 0; x < HeightData[y].Length; x++)
+            {
+                SetCell(x, y, (int)HeightData[y][x]);
+            }
+        }
+    }
 
     public void SmoothTerrain(float cordX, float cordY, int BrushSize, float Opacity)
     {
-        var HeightData = new float[10, 10];
         float[,] newHeightData;
 
         // Note: MapWidth and MapHeight should be equal and power-of-two values 
@@ -227,53 +257,53 @@ public partial class Main : Node2D
 
                 if ((x - 1) > 0) // Check to left
                 {
-                    sectionsTotal += HeightData[x - 1, y];
+                    sectionsTotal += HeightData[y][x - 1];
                     adjacentSections++;
 
                     if ((y - 1) > 0) // Check up and to the left
                     {
-                        sectionsTotal += HeightData[x - 1, y - 1];
+                        sectionsTotal += HeightData[y-1][x - 1];
                         adjacentSections++;
                     }
 
                     if ((y + 1) < cordY + BrushSize) // Check down and to the left
                     {
-                        sectionsTotal += HeightData[x - 1, y + 1];
+                        sectionsTotal += HeightData[y+1][x - 1];
                         adjacentSections++;
                     }
                 }
 
                 if ((x + 1) < cordX + BrushSize) // Check to right
                 {
-                    sectionsTotal += HeightData[x + 1, y];
+                    sectionsTotal += HeightData[y][x + 1];
                     adjacentSections++;
 
                     if ((y - 1) > 0) // Check up and to the right
                     {
-                        sectionsTotal += HeightData[x + 1, y - 1];
+                        sectionsTotal += HeightData[y-1][x + 1];
                         adjacentSections++;
                     }
 
                     if ((y + 1) < cordY + BrushSize) // Check down and to the right
                     {
-                        sectionsTotal += HeightData[x + 1, y + 1];
+                        sectionsTotal += HeightData[y+1][x + 1];
                         adjacentSections++;
                     }
                 }
 
                 if ((y - 1) > 0) // Check above
                 {
-                    sectionsTotal += HeightData[x, y - 1];
+                    sectionsTotal += HeightData[y-1][x];
                     adjacentSections++;
                 }
 
                 if ((y + 1) < cordY + BrushSize) // Check below
                 {
-                    sectionsTotal += HeightData[x, y + 1];
+                    sectionsTotal += HeightData[y+1][x];
                     adjacentSections++;
                 }
 
-                newHeightData[x, y] = (HeightData[x, y] + (sectionsTotal / adjacentSections)) * Opacity;//0.5f;
+                newHeightData[y, x] = (HeightData[y][x] + (sectionsTotal / adjacentSections)) * Opacity;//0.5f;
             }
         }
 
@@ -282,7 +312,7 @@ public partial class Main : Node2D
         {
             for (int y = (int)cordY - BrushSize; y <= cordY + BrushSize; y++)
 
-                HeightData[(int)cordX - BrushSize + x, (int)cordY - BrushSize + y] = newHeightData[x, y];
+                HeightData[(int)cordY - BrushSize + y][(int)cordX - BrushSize + x] = newHeightData[y, x];
 
         }
 
