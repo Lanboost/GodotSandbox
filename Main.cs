@@ -241,6 +241,23 @@ public partial class Main : Node2D
         }
     }
 
+    public void SmoothTerrain1(float cordX, float cordY, int BrushSize, float Opacity)
+    {
+        var markOffset = new int[][]
+        {
+            new int[] { 1, 0},
+            new int[] { 1, 1},
+            new int[] { 0, 1},
+            new int[] {-1, 1},
+            new int[] {-1, 0},
+            new int[] {-1,-1},
+            new int[] { 0,-1},
+            new int[] { 1,-1},
+        };
+        
+        // TODO iterate over all markOffsets, and combine value etc
+    }
+
     public void SmoothTerrain(float cordX, float cordY, int BrushSize, float Opacity)
     {
         float[,] newHeightData;
