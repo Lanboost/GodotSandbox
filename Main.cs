@@ -33,24 +33,24 @@ public class NavMeshRect
 {
     public int sx;
     public int sy;
-    public int ex;
-    public int ey;
+    public int width;
+    public int height;
 
-    public NavMeshRect(int sx, int sy, int ex, int ey)
+    public NavMeshRect(int sx, int sy, int width, int height)
     {
         this.sx = sx;
         this.sy = sy;
-        this.ex = ex;
-        this.ey = ey;
+        this.width = width;
+        this.height = height;
     }
 
     public float ManhattanDistance(NavMeshRect other)
     {
-        var midx1 = this.sx + (this.ex - this.sx) / 2;
-        var midy1 = this.sy + (this.ey - this.sy) / 2;
+        var midx1 = this.sx + this.width / 2;
+        var midy1 = this.sy + this.height / 2;
 
-        var midx2 = other.sx + (other.ex - other.sx) / 2;
-        var midy2 = other.sy + (other.ey - other.sy) / 2;
+        var midx2 = other.sx + other.width / 2;
+        var midy2 = other.sy + other.height / 2;
 
         return Math.Abs(midx1-midx2)+Math.Abs(midy1-midy2);
     }
@@ -58,46 +58,46 @@ public class NavMeshRect
     public NavMeshEdge CreateEdge(NavMeshRect other)
     {
         // check box intersect
-        if(this.sx <= other.ex+1 && other.sx <= this.ex+1)
+        if(this.sx <= other.sx+other.width && other.sx <= this.sx+this.width)
         {
-            if (this.sy <= other.ey+1 && other.sy <= this.ey+1)
+            if (this.sy <= other.sy+other.height && other.sy <= this.sy+this.height)
             {
                 int sx, sy, ex, ey;
                 // one side should line up with other
-                if(this.sx == other.ex+1)
+                if(this.sx == other.sx+other.width)
                 {
                     sx = this.sx;
                     ex = this.sx;
                     sy = Math.Max(this.sy, other.sy);
-                    ey = Math.Min(this.ey, other.ey);
+                    ey = Math.Min(this.sy + this.height, other.sy + other.height);
                 }
-                else if (this.ex + 1 == other.sx)
+                else if (this.sx+this.width == other.sx)
                 {
-                    sx = this.ex + 1;
-                    ex = this.ex + 1;
+                    sx = other.sx;
+                    ex = other.sx;
                     sy = Math.Max(this.sy, other.sy);
-                    ey = Math.Min(this.ey, other.ey);
+                    ey = Math.Min(this.sy + this.height, other.sy + other.height);
                 }
-                else if (this.sy == other.ey + 1)
+                else if (this.sy == other.sy + other.height)
                 {
                     sy = this.sy;
                     ey = this.sy;
                     sx = Math.Max(this.sx, other.sx);
-                    ex = Math.Min(this.ex, other.ex);
+                    ex = Math.Min(this.sx + this.width, other.sx + other.width);
                 }
-                else if (this.ey + 1 == other.sy)
+                else if (this.sy+this.height == other.sy)
                 {
-                    sy = this.ey + 1;
-                    ey = this.ey + 1;
+                    sy = other.sy;
+                    ey = other.sy;
                     sx = Math.Max(this.sx, other.sx);
-                    ex = Math.Min(this.ex, other.ex);
+                    ex = Math.Min(this.sx+this.width, other.sx+other.width);
                 }
                 else
                 {
                     throw new Exception("Wtf? Real overlap?");
                 }
 
-                return new NavMeshEdge(this, other, new NavMeshRect(sx, sy, ex, ey), ManhattanDistance(other));
+                return new NavMeshEdge(this, other, new NavMeshRect(sx, sy, ex-sx, ey-sy), ManhattanDistance(other));
             }
         }
         return null;
@@ -149,7 +149,7 @@ public class NavMeshCreator
                 break;
             }
         }
-        return new NavMeshRect(sx, sy, ex, ey);
+        return new NavMeshRect(sx, sy, ex-sx+1, ey-sy+1);
     }
 
     public List<NavMeshRect> Create(IChunk chunk)
@@ -322,17 +322,12 @@ public partial class Main : Node2D
         var i = 0;
         foreach(var rect in l)
         {
-            var cy = rect.sy;
-            var cx = rect.sx;
-            while(cy <= rect.ey)
+            for(var cy = rect.sy; cy < rect.sy+rect.height; cy++)
             {
-                while(cx <= rect.ex)
+                for (var cx = rect.sx; cx < rect.sx + rect.width; cx++)
                 {
-                    tilemap.SetCell(1, new Vector2I(cx, cy), 2, new Vector2I(i%10, i/10));
-                    cx++;
+                    tilemap.SetCell(1, new Vector2I(cx, cy), 2, new Vector2I(i % 10, i / 10));
                 }
-                cy += 1;
-                cx = rect.sx;
             }
             i += 1;
             i = i % 100;
@@ -341,16 +336,16 @@ public partial class Main : Node2D
         foreach (var e in edges)
         {
             var ed = e.edge;
-            if(ed.sx == ed.ex)
+            if(ed.width == 0)
             {
-                for(int y = ed.sy; y <= ed.ey; y++)
+                for(int y = ed.sy; y < ed.sy+ed.height; y++)
                 {
                     tilemap.SetCell(2, new Vector2I(ed.sx, y), 3, new Vector2I(7, 0));
                 }
             }
             else
             {
-                for (int x = ed.sx; x <= ed.ex; x++)
+                for (int x = ed.sx; x < ed.sx+ed.width; x++)
                 {
                     tilemap.SetCell(3, new Vector2I(x, ed.sy), 3, new Vector2I(4, 0));
                 }
