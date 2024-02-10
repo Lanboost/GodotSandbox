@@ -5,6 +5,9 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using DeBroglie.Rot;
+using Lanboost.PathFinding.Astar;
+using Lanboost.PathFinding.Graph;
+using System.Reflection.Emit;
 
 public interface IChunk
 {
@@ -13,327 +16,6 @@ public interface IChunk
 	public bool Blocked(int x, int y);
 }
 
-public class NavMeshEdge
-{
-    public NavMeshRect left;
-    public NavMeshRect right;
-    public NavMeshRect edge;
-    public float cost;
-
-    public NavMeshEdge(NavMeshRect left, NavMeshRect right, NavMeshRect edge, float cost)
-    {
-        this.left = left;
-        this.right = right;
-        this.edge = edge;
-        this.cost = cost;
-    }
-}
-
-public class NavMeshRect
-{
-    public int sx;
-    public int sy;
-    public int width;
-    public int height;
-
-    public NavMeshRect(int sx, int sy, int width, int height)
-    {
-        this.sx = sx;
-        this.sy = sy;
-        this.width = width;
-        this.height = height;
-    }
-
-    public float ManhattanDistance(NavMeshRect other)
-    {
-        var midx1 = this.sx + this.width / 2;
-        var midy1 = this.sy + this.height / 2;
-
-        var midx2 = other.sx + other.width / 2;
-        var midy2 = other.sy + other.height / 2;
-
-        return Math.Abs(midx1-midx2)+Math.Abs(midy1-midy2);
-    }
-
-    public NavMeshEdge CreateEdge(NavMeshRect other)
-    {
-        // check box intersect
-        if(this.sx <= other.sx+other.width && other.sx <= this.sx+this.width)
-        {
-            if (this.sy <= other.sy+other.height && other.sy <= this.sy+this.height)
-            {
-                int sx, sy, ex, ey;
-                // one side should line up with other
-                if(this.sx == other.sx+other.width)
-                {
-                    sx = this.sx;
-                    ex = this.sx;
-                    sy = Math.Max(this.sy, other.sy);
-                    ey = Math.Min(this.sy + this.height, other.sy + other.height);
-                }
-                else if (this.sx+this.width == other.sx)
-                {
-                    sx = other.sx;
-                    ex = other.sx;
-                    sy = Math.Max(this.sy, other.sy);
-                    ey = Math.Min(this.sy + this.height, other.sy + other.height);
-                }
-                else if (this.sy == other.sy + other.height)
-                {
-                    sy = this.sy;
-                    ey = this.sy;
-                    sx = Math.Max(this.sx, other.sx);
-                    ex = Math.Min(this.sx + this.width, other.sx + other.width);
-                }
-                else if (this.sy+this.height == other.sy)
-                {
-                    sy = other.sy;
-                    ey = other.sy;
-                    sx = Math.Max(this.sx, other.sx);
-                    ex = Math.Min(this.sx+this.width, other.sx+other.width);
-                }
-                else
-                {
-                    throw new Exception("Wtf? Real overlap?");
-                }
-
-                return new NavMeshEdge(this, other, new NavMeshRect(sx, sy, ex-sx, ey-sy), ManhattanDistance(other));
-            }
-        }
-        return null;
-    }
-}
-public class NavMeshCreator
-{
-    NavMeshRect ExpandRectGreedy(bool[][] usedCurrent, int sx, int sy, int size)
-	{
-		int ex = sx;
-		int ey = sy;
-		while(ex < size-1)
-		{
-			if (!usedCurrent[sy][ex+1])
-			{
-                ex ++;
-				usedCurrent[sy][ex] = true;
-            }
-			else
-			{
-				break;
-			}
-		}
-
-        while (ey < size - 1)
-        {
-            var ok = true;
-            for(int x = sx; x <= ex; x++)
-            {
-                if (usedCurrent[ey+1][x])
-                {
-                    ok = false;
-                    break;
-                }
-            }
-
-            if(ok)
-            {
-                ey++;
-                for (int x = sx; x <= ex; x++)
-                {
-                    usedCurrent[ey][x] = true;
-                }
-            }
-            else
-            {
-                break;
-            }
-        }
-        return new NavMeshRect(sx, sy, ex-sx+1, ey-sy+1);
-    }
-
-    public List<NavMeshRect> CreateGreedy(IChunk chunk)
-	{
-        List<NavMeshRect> rects = new List<NavMeshRect>();
-		var size = chunk.Size();
-
-        bool[][] used = new bool[size][];
-        for (int y = 0; y < used.Length; y++)
-        {
-			used[y] = new bool[size];
-            for (int x = 0; x < used[y].Length; x++)
-            {
-				used[y][x] = chunk.Blocked(x, y);
-            }
-        }
-
-        for (int y = 0; y < used.Length; y++)
-		{
-            for (int x = 0; x < used[y].Length; x++)
-            {
-				if (!used[y][x])
-				{
-                    var rect = ExpandRectGreedy(used, x, y, size);
-                    rects.Add(rect);
-                }
-            }
-        }
-        return rects;
-    }
-
-    public bool ExpandRect(bool[][] used, NavMeshRect rect, bool horizontal)
-    {
-        if(horizontal)
-        {
-            if (used[rect.sy].Length <= rect.sx + rect.width)
-            {
-                return false;
-            }
-            
-            for(int y = rect.sy; y < rect.sy+rect.height; y++)
-            {
-                
-                if (used[y][rect.sx+rect.width])
-                {
-                    return false;
-                }
-            }
-        }
-        else
-        {
-            if (used.Length <= rect.sy + rect.height)
-            {
-                return false;
-            }
-
-            for (int x = rect.sx; x < rect.sx + rect.width; x++)
-            {
-                if (used[rect.sy+rect.height][x])
-                {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    public List<NavMeshRect> Create(IChunk chunk, int maxDiff = 50)
-    {
-        List<NavMeshRect> rects = new List<NavMeshRect>();
-        var size = chunk.Size();
-
-        bool[][] used = new bool[size][];
-        for (int y = 0; y < used.Length; y++)
-        {
-            used[y] = new bool[size];
-            for (int x = 0; x < used[y].Length; x++)
-            {
-                used[y][x] = chunk.Blocked(x, y);
-            }
-        }
-
-        NavMeshRect current = new NavMeshRect(0, 0, 0, 0);
-        while (true)
-        {
-            int bestScore = -1;
-            NavMeshRect best = new NavMeshRect(0,0,0,0);
-
-            for (int y = 0; y < used.Length; y++)
-            {
-                for (int x = 0; x < used[y].Length; x++)
-                {
-                    var blockedLeft = x == 0 || used[y][x - 1];
-
-                    if (!used[y][x] && blockedLeft)
-                    {
-                        current.sx = x;
-                        current.sy = y;
-                        current.width = 1;
-                        current.height = 1;
-                        
-                        // Expand in x
-                        while(true)
-                        {
-                            // Expand in y
-                            while(true)
-                            {
-                                if(current.height-maxDiff > current.width || !ExpandRect(used, current, false))
-                                {
-                                    var score = current.width * current.height;
-                                    if(score > bestScore)
-                                    {
-                                        bestScore = score;
-                                        best.sx = current.sx;
-                                        best.sy = current.sy;
-                                        best.width = current.width;
-                                        best.height = current.height;
-                                    }
-                                    break;
-                                }
-                                else
-                                {
-                                    current.height += 1;
-                                }
-                            }
-                            // check if we failed before expanding to atleast diffMax
-                            if (current.width - maxDiff > current.height)
-                            {
-                                break;
-                            }
-                            else
-                            {
-                                current.height = 1;
-                                if (!ExpandRect(used, current, true))
-                                {
-                                    break;
-                                }
-                                else
-                                {
-                                    current.width += 1;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if (bestScore > 0)
-            {
-                rects.Add(best);
-
-                for (int y = best.sy; y < best.sy+best.height; y++)
-                {
-                    for (int x = best.sx; x < best.sx+best.width; x++)
-                    {
-                        used[y][x] = true;
-                    }
-                }
-            }
-            else
-            {
-                break;
-            }
-        }
-
-        return rects;
-    }
-
-    public List<NavMeshEdge> CreateEdges(List<NavMeshRect> rects)
-    {
-        List<NavMeshEdge> edges = new List<NavMeshEdge>();
-        for (int curr = 0; curr < rects.Count; curr++)
-        {
-            for (int next = curr+1; next < rects.Count; next++)
-            {
-                // Check overlap / create edge
-                var edge = rects[curr].CreateEdge(rects[next]);
-                if(edge != null)
-                {
-                    edges.Add(edge);
-                }
-            }
-        }
-        return edges;
-    }
-}
 
 public class TestChunk:IChunk
 {
@@ -355,9 +37,29 @@ public class TestChunk:IChunk
     }
 }
 
+
+
+public static class MyExtensions
+{
+    public static void DrawNavMeshRect(this TileMap tilemap, NavMeshRect rect, int layer, int sprite, Vector2I spritePos)
+    {
+        for (var cy = rect.sy; cy < rect.sy + rect.height; cy++)
+        {
+            for (var cx = rect.sx; cx < rect.sx + rect.width; cx++)
+            {
+                tilemap.SetCell(layer, new Vector2I(cx, cy), sprite, spritePos);
+            }
+        }
+    }
+}
+
+
 public partial class Main : Node2D
 {
     float[][] HeightData;
+
+    
+    NavMeshGraph graph;
 
     // Called when the node enters the scene tree for the first time.
     public override void _Ready()
@@ -457,13 +159,8 @@ public partial class Main : Node2D
         var i = 0;
         foreach(var rect in l)
         {
-            for(var cy = rect.sy; cy < rect.sy+rect.height; cy++)
-            {
-                for (var cx = rect.sx; cx < rect.sx + rect.width; cx++)
-                {
-                    tilemap.SetCell(1, new Vector2I(cx, cy), 2, new Vector2I(i % 10, i / 10));
-                }
-            }
+            tilemap.DrawNavMeshRect(rect, 1, 2, new Vector2I(i % 10, i / 10));
+
             i += 1;
             i = i % 100;
         }
@@ -485,9 +182,16 @@ public partial class Main : Node2D
                     tilemap.SetCell(3, new Vector2I(x, ed.sy), 3, new Vector2I(4, 0));
                 }
             }
+
+            e.left.edges.Add(e);
+            e.right.edges.Add(e);
+
         }
 
+        graph = new NavMeshGraph(l);        
     }
+
+    int mode = 0;
 
     // Called every frame. 'delta' is the elapsed time since the previous frame.
     public override void _Process(double delta)
@@ -497,8 +201,8 @@ public partial class Main : Node2D
     public override void _UnhandledKeyInput(InputEvent @event)
     {
         base._UnhandledKeyInput(@event);
-        SmoothTerrain(5, 5, 2, 1);
-        UpdateMap();
+        //SmoothTerrain(5, 5, 2, 1);
+        //UpdateMap();
     }
 
     void SetCell(int x, int y, int value)
@@ -618,4 +322,71 @@ public partial class Main : Node2D
 
     [Export]
     public TileMap tilemap;
+
+    public Vector2I start;
+    public Vector2I end;
+    public override void _UnhandledInput(InputEvent @event)
+    {
+        base._UnhandledInput(@event);
+
+        if(@event is InputEventMouseButton buttonEvent)
+        {
+            if(buttonEvent.ButtonIndex == MouseButton.Left && buttonEvent.IsPressed())
+            {
+                var tile = tilemap.LocalToMap(tilemap.ToLocal(buttonEvent.Position));
+                GD.Print(tile);
+                if(!buttonEvent.AltPressed) { 
+                    start = tile;
+                }
+                else
+                {
+                    end = tile;
+                }
+
+                var edges = graph.FindPath(start, end);
+
+                tilemap.ClearLayer(4);
+                tilemap.ClearLayer(7);
+
+                tilemap.SetCell(7, start, 3, new Vector2I(0, 1));
+                tilemap.SetCell(7, end, 3, new Vector2I(0, 2));
+
+                if (edges != null)
+                {
+                    foreach (var edge in edges) {
+                        tilemap.DrawNavMeshRect(edge.left, 4, 3, new Vector2I(3,0));
+                        tilemap.DrawNavMeshRect(edge.right, 4, 3, new Vector2I(3, 0));
+                    }
+
+                    (var leftPoints, var rightPoints) = SimpleStupidFunnel.CreateFunnelPoints(start, end, edges);
+                    tilemap.ClearLayer(5);
+                    tilemap.ClearLayer(6);
+
+                    foreach(var left in leftPoints)
+                    {
+                        tilemap.SetCell(5, new Vector2I((int)left.X, (int)left.Y), 3, new Vector2I(8,0));
+                    }
+
+                    foreach (var right in rightPoints)
+                    {
+                        tilemap.SetCell(6, new Vector2I((int)right.X, (int)right.Y), 3, new Vector2I(9,0));
+                    }
+
+                    var points = SimpleStupidFunnel.Run(start, end, edges);
+                    foreach (var point in points)
+                    {
+                        tilemap.SetCell(7, new Vector2I((int)point.X, (int)point.Y), 3, new Vector2I(6, 0));
+                    }
+
+                }
+
+                
+
+
+
+            }
+        }
+
+    }
+
 }
