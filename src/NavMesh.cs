@@ -13,16 +13,19 @@ public class NavMesh
 
 public class NavMeshEdge
 {
-    public NavMeshRect left;
-    public NavMeshRect right;
-    public NavMeshRect edge;
+    public NavMeshRect to;
+
+    // Left / right here, is determined by which direction the edge is going
+    // relative to the triangulation in Simple Stupid Funnel algorithm
+    public Vector2 left;
+    public Vector2 right;
     public float cost;
 
-    public NavMeshEdge(NavMeshRect left, NavMeshRect right, NavMeshRect edge, float cost)
+    public NavMeshEdge(NavMeshRect to, Vector2 left, Vector2 right, float cost)
     {
+        this.to = to;
         this.left = left;
         this.right = right;
-        this.edge = edge;
         this.cost = cost;
     }
 }
@@ -62,42 +65,50 @@ public class NavMeshRect
         {
             if (this.sy <= other.sy + other.height && other.sy <= this.sy + this.height)
             {
+                Vector2 left, right;
+
                 int sx, sy, ex, ey;
                 // one side should line up with other
+                // this is to the right going <-
                 if (this.sx == other.sx + other.width)
                 {
-                    sx = this.sx;
-                    ex = this.sx;
-                    sy = Math.Max(this.sy, other.sy);
-                    ey = Math.Min(this.sy + this.height, other.sy + other.height);
+                    var ytop = Math.Max(this.sy, other.sy);
+                    var ybottom = Math.Min(this.sy + this.height, other.sy + other.height);
+                    left = new Vector2(this.sx, ybottom);
+                    right = new Vector2(this.sx, ytop);
                 }
+                // left ->
                 else if (this.sx + this.width == other.sx)
                 {
-                    sx = other.sx;
-                    ex = other.sx;
-                    sy = Math.Max(this.sy, other.sy);
-                    ey = Math.Min(this.sy + this.height, other.sy + other.height);
+                    var ytop = Math.Max(this.sy, other.sy);
+                    var ybottom = Math.Min(this.sy + this.height, other.sy + other.height);
+                    left = new Vector2(other.sx, ytop);
+                    right = new Vector2(other.sx, ybottom);
                 }
+                // bottom ^
                 else if (this.sy == other.sy + other.height)
                 {
-                    sy = this.sy;
-                    ey = this.sy;
-                    sx = Math.Max(this.sx, other.sx);
-                    ex = Math.Min(this.sx + this.width, other.sx + other.width);
+                    var xleft = Math.Max(this.sx, other.sx);
+                    var xright = Math.Min(this.sx + this.width, other.sx + other.width);
+                    left = new Vector2(xleft, this.sy);
+                    right = new Vector2(xright, this.sy);
+
                 }
+                // top v
                 else if (this.sy + this.height == other.sy)
                 {
-                    sy = other.sy;
-                    ey = other.sy;
-                    sx = Math.Max(this.sx, other.sx);
-                    ex = Math.Min(this.sx + this.width, other.sx + other.width);
+                    var xleft = Math.Max(this.sx, other.sx);
+                    var xright = Math.Min(this.sx + this.width, other.sx + other.width);
+                    left = new Vector2(xright, other.sy);
+                    right = new Vector2(xleft, other.sy);
+
                 }
                 else
                 {
                     throw new Exception("Wtf? Real overlap?");
                 }
 
-                return new NavMeshEdge(this, other, new NavMeshRect(sx, sy, ex - sx, ey - sy), ManhattanDistance(other));
+                return new NavMeshEdge(other, left, right, ManhattanDistance(other));
             }
         }
         return null;
@@ -110,6 +121,8 @@ public class NavMeshGraph : IGraph<NavMeshRect, NavMeshEdge>
     AStar<NavMeshRect, NavMeshEdge> astar;
 
     public List<NavMeshRect> navMeshRects = new List<NavMeshRect>();
+
+    public Dictionary<NavMeshRect, NavMeshEdge> extraEndEdges = new Dictionary<NavMeshRect, NavMeshEdge>();
 
     public NavMeshGraph(List<NavMeshRect> navMeshRects)
     {
@@ -134,7 +147,28 @@ public class NavMeshGraph : IGraph<NavMeshRect, NavMeshEdge>
 
     public void AddTemporaryStartEndNodes(NavMeshRect start, NavMeshRect end)
     {
+        var s = GetRectFromPosition(new Vector2I(start.sx, start.sy));
+        var e = GetRectFromPosition(new Vector2I(end.sx, end.sy));
 
+        if (s == null || e == null)
+        {
+            //return null;
+        }
+        else
+        {
+            foreach(var se in s.edges)
+            {
+                var cost = start.ManhattanDistance(se.to);
+                start.edges.Add(new NavMeshEdge(se.to, se.left, se.right, cost));
+            }
+
+            extraEndEdges.Clear();
+            foreach (var ee in e.edges)
+            {
+                var cost = end.ManhattanDistance(ee.to);
+                extraEndEdges.Add(ee.to,new NavMeshEdge(end, ee.right, ee.left, cost));
+            }
+        }
     }
 
     public int GetCost(NavMeshRect from, NavMeshRect to, NavMeshEdge link)
@@ -146,8 +180,12 @@ public class NavMeshGraph : IGraph<NavMeshRect, NavMeshEdge>
     {
         foreach (var edge in node.edges)
         {
-            var e = node != edge.left ? edge.left : edge.right;
-            yield return new Edge<NavMeshRect, NavMeshEdge>(e, edge);
+            //var e = node != edge.left ? edge.left : edge.right;
+            yield return new Edge<NavMeshRect, NavMeshEdge>(edge.to, edge);
+        }
+        if (extraEndEdges.ContainsKey(node))
+        {
+            yield return new Edge<NavMeshRect, NavMeshEdge>(extraEndEdges[node].to, extraEndEdges[node]);
         }
     }
 
@@ -158,15 +196,9 @@ public class NavMeshGraph : IGraph<NavMeshRect, NavMeshEdge>
 
     internal List<NavMeshEdge> FindPath(Vector2I start, Vector2I end)
     {
-        var s = GetRectFromPosition(start);
-        var e = GetRectFromPosition(end);
+        
 
-        if(s == null || e == null)
-        {
-            return null;
-        }
-
-        var failure = this.astar.FindPath(s,e);
+        var failure = this.astar.FindPath(new NavMeshRect(start.X, start.Y, 0, 0), new NavMeshRect(end.X, end.Y, 0,0));
         if (failure == null)
         {
             return this.astar.GetPathLinks();

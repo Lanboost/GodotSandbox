@@ -198,9 +198,9 @@ public class SimpleStupidFunnel
 
         foreach(var edge in edges)
         {
-            Vector2 left = new Vector2();
-            Vector2 right = new Vector2();
-            GetEdgeLeftRight(ref currentref, edge.edge, ref left, ref right);
+            Vector2 left = edge.left;
+            Vector2 right = edge.right;
+            //GetEdgeLeftRight(ref currentref, edge.edge, ref left, ref right);
 
             leftPoints.Add(left);
             rightPoints.Add(right);

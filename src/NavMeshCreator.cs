@@ -114,7 +114,10 @@ public class NavMeshCreator
         return true;
     }
 
-    public List<NavMeshRect> Create(IChunk chunk, int maxDiff = 50)
+    // Max diff and max size is important. Having larger numbers, reduces the complexity of the mesh.
+    // however it also introduces the potential for suboptimal paths.
+    // having the small values will also force the mesh to become fine and will end up restricting the funnel.
+    public List<NavMeshRect> Create(IChunk chunk, int maxDiff = 2, int maxSize = 10)
     {
         List<NavMeshRect> rects = new List<NavMeshRect>();
         var size = chunk.Size();
@@ -154,7 +157,7 @@ public class NavMeshCreator
                             // Expand in y
                             while (true)
                             {
-                                if (current.height - maxDiff > current.width || !ExpandRect(used, current, false))
+                                if (current.height >= maxSize || current.height - maxDiff > current.width || !ExpandRect(used, current, false))
                                 {
                                     var score = current.width * current.height;
                                     if (score > bestScore)
@@ -173,7 +176,7 @@ public class NavMeshCreator
                                 }
                             }
                             // check if we failed before expanding to atleast diffMax
-                            if (current.width - maxDiff > current.height)
+                            if (current.height >= maxSize  || current.width >= maxSize || current.width - maxDiff > current.height)
                             {
                                 break;
                             }
@@ -226,7 +229,11 @@ public class NavMeshCreator
                 var edge = rects[curr].CreateEdge(rects[next]);
                 if (edge != null)
                 {
+                    rects[curr].edges.Add(edge);
                     edges.Add(edge);
+                    var second = rects[next].CreateEdge(rects[curr]);
+                    edges.Add(second);
+                    rects[next].edges.Add(second);
                 }
             }
         }

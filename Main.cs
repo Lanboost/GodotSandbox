@@ -163,7 +163,7 @@ public partial class Main : Node2D
             i += 1;
             i = i % 100;
         }
-        
+        /*
         foreach (var e in edges)
         {
             var ed = e.edge;
@@ -181,11 +181,7 @@ public partial class Main : Node2D
                     tilemap.SetCell(3, new Vector2I(x, ed.sy), 3, new Vector2I(4, 0));
                 }
             }
-
-            e.left.edges.Add(e);
-            e.right.edges.Add(e);
-
-        }
+        }*/
 
         graph = new NavMeshGraph(l);        
     }
@@ -379,8 +375,8 @@ public partial class Main : Node2D
                 if (edges != null)
                 {
                     foreach (var edge in edges) {
-                        tilemap.DrawNavMeshRect(edge.left, 4, 3, new Vector2I(3,0));
-                        tilemap.DrawNavMeshRect(edge.right, 4, 3, new Vector2I(3, 0));
+                        tilemap.DrawNavMeshRect(edge.to, 4, 3, new Vector2I(3,0));
+                        //tilemap.DrawNavMeshRect(edge.right, 4, 3, new Vector2I(3, 0));
                     }
 
                     (var leftPoints, var rightPoints) = SimpleStupidFunnel.CreateFunnelPoints(start, end, edges);
