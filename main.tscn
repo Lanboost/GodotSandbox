@@ -1,11 +1,19 @@
-[gd_scene load_steps=3 format=3 uid="uid://chg8y8bocs84r"]
+[gd_scene load_steps=5 format=3 uid="uid://chg8y8bocs84r"]
 
 [ext_resource type="Script" path="res://Main.cs" id="1_hsdud"]
 [ext_resource type="TileSet" uid="uid://bbb2d0187ri6x" path="res://TestTileSet.tres" id="2_825p6"]
+[ext_resource type="Script" path="res://PointDrawer.cs" id="3_h7w7l"]
+[ext_resource type="PackedScene" uid="uid://b6u45xsedicl2" path="res://point.tscn" id="4_nfgrn"]
 
-[node name="main" type="Node2D" node_paths=PackedStringArray("tilemap")]
+[node name="main" type="Node2D" node_paths=PackedStringArray("tilemap", "pathLine", "funnelLine", "leftLine", "rightLine", "helpLabel", "drawer")]
 script = ExtResource("1_hsdud")
 tilemap = NodePath("TileMap")
+pathLine = NodePath("Path")
+funnelLine = NodePath("Funnel")
+leftLine = NodePath("FunnelLeft")
+rightLine = NodePath("FunnelRight")
+helpLabel = NodePath("Label")
+drawer = NodePath("PointDrawer")
 
 [node name="TileMap" type="TileMap" parent="."]
 tile_set = ExtResource("2_825p6")
@@ -62,9 +70,26 @@ layer_7/z_index = 0
 layer_7/tile_data = PackedInt32Array()
 
 [node name="Path" type="Line2D" parent="."]
+width = 1.0
+default_color = Color(1, 0, 0, 1)
 
 [node name="Funnel" type="Line2D" parent="."]
+width = 1.0
+default_color = Color(1, 1, 0, 1)
 
 [node name="FunnelLeft" type="Line2D" parent="."]
+width = 1.0
+default_color = Color(1, 0, 1, 1)
 
 [node name="FunnelRight" type="Line2D" parent="."]
+width = 1.0
+default_color = Color(0, 1, 1, 1)
+
+[node name="Label" type="Label" parent="."]
+offset_right = 40.0
+offset_bottom = 23.0
+
+[node name="PointDrawer" type="Node" parent="."]
+script = ExtResource("3_h7w7l")
+scale = 32.0
+pointPrefab = ExtResource("4_nfgrn")

@@ -16,8 +16,9 @@ public class SSFState
     public int rightIndex;
 
     public List<Vector2> pointList;
+    public string help;
 
-    public SSFState(Vector2 funnel, Vector2 left, Vector2 right, Vector2 funnelSide, int mode, int leftIndex, int rightIndex, List<Vector2> pointList)
+    public SSFState(Vector2 funnel, Vector2 left, Vector2 right, Vector2 funnelSide, int mode, int leftIndex, int rightIndex, List<Vector2> pointList, string help)
     {
         this.funnel = funnel;
         this.left = left;
@@ -27,13 +28,27 @@ public class SSFState
         this.leftIndex = leftIndex;
         this.rightIndex = rightIndex;
         this.pointList = pointList;
+        this.help = help;
+    }
+}
+
+public static class ListCopy
+{
+    public static List<T> Copy<T>(this List<T> list)
+    {
+        var ret = new List<T>();
+        foreach (var item in list)
+        {
+            ret.Add(item);
+        }
+        return ret;
     }
 }
 
 public class SimpleStupidFunnel
 {
 
-    public static List<Vector2> Run(Vector2I start, Vector2I end, List<NavMeshEdge> edges)
+    public static List<Vector2> Run(Vector2I start, Vector2I end, List<NavMeshEdge> edges, ref List<SSFState> steps)
     {
         List<Vector2> pointList = new List<Vector2>();
         (var leftPoints, var rightPoints) = CreateFunnelPoints(start, end, edges);
@@ -45,7 +60,28 @@ public class SimpleStupidFunnel
         int rightIndex = 0;
         int leftIndex = 0;
 
-        while(true)
+
+
+        if (steps != null)
+        {
+            steps.Add(
+                new SSFState(
+                    funnel,
+                    left,
+                    right,
+                    Vector2.Zero,
+                    0,
+                    0,
+                    0,
+                    null,
+                    "Initial setup"
+                )
+            );
+        }
+
+
+
+        while (true)
         {
             if(rightIndex < leftIndex)
             {
@@ -53,7 +89,7 @@ public class SimpleStupidFunnel
                 {
                     return pointList;
                 }
-                StepFunnel(ref funnel, ref right, ref left, ref rightIndex, ref leftIndex, rightPoints, leftPoints, 1, pointList);
+                StepFunnel(ref funnel, ref right, ref left, ref rightIndex, ref leftIndex, rightPoints, leftPoints, 1, pointList, ref steps);
             }
             else
             {
@@ -61,10 +97,8 @@ public class SimpleStupidFunnel
                 {
                     return pointList;
                 }
-                StepFunnel(ref funnel, ref left, ref right, ref leftIndex, ref rightIndex, leftPoints, rightPoints, -1, pointList);
+                StepFunnel(ref funnel, ref left, ref right, ref leftIndex, ref rightIndex, leftPoints, rightPoints, -1, pointList, ref steps);
             }
-
-            
         }
     }
 
@@ -76,13 +110,30 @@ public class SimpleStupidFunnel
         List<Vector2> toStep, 
         List<Vector2> other, 
         int negativeOperatior,
-        List<Vector2> result
+        List<Vector2> result,
+        ref List<SSFState> steps
     )
     {
         var newSide = toStep[index + 1] - funnel;
 
         var value = newSide.Cross(side)* negativeOperatior;
 
+        if (steps != null)
+        {
+            steps.Add(
+                new SSFState(
+                    funnel,
+                    side,
+                    otherSide,
+                    newSide,
+                    0,
+                    index,
+                    otherIndex,
+                    result.Copy(),
+                    "Funnel check"
+                )
+            );
+        }
 
         if (value < 0)
         {
@@ -90,11 +141,47 @@ public class SimpleStupidFunnel
             result.Add(funnel);
             side = toStep[index + 1] - funnel;
             otherSide = other[otherIndex] - funnel;
+
+            if (steps != null)
+            {
+                steps.Add(
+                    new SSFState(
+                        funnel,
+                        side,
+                        otherSide,
+                        Vector2.Zero,
+                        0,
+                        index,
+                        otherIndex,
+                        result.Copy(),
+                        "Funnel update [check failed]"
+                    )
+                );
+            }
         }
         else
         {
+
             side = newSide;
             index++;
+
+
+            if (steps != null)
+            {
+                steps.Add(
+                    new SSFState(
+                        funnel,
+                        side,
+                        otherSide,
+                        Vector2.Zero,
+                        0,
+                        index,
+                        otherIndex,
+                        result.Copy(),
+                        "Funnel update [check success]"
+                    )
+                );
+            }
         }
     }
 
@@ -127,6 +214,8 @@ public class SimpleStupidFunnel
         return (leftPoints, rightPoints);
     }
 
+    //This does not work, we need step direction, if we are right above / below,
+    //cross product is 0, and we do not know how to create the path...
     protected static void GetEdgeLeftRight(ref Vector2 reference, NavMeshRect rect, ref Vector2 left, ref Vector2 right)
     {
         if(rect.width == 0)
@@ -150,11 +239,17 @@ public class SimpleStupidFunnel
         var leftref = left - reference;
         var rightref = right-reference;
         // If cross is negative, swap points
-        if (leftref.Cross(rightref) < 0)
+        var cross = leftref.Cross(rightref);
+        if (cross < 0)
         {
             var t = left;
             left = right;
             right = t;
+        }
+        else if(cross == 0)
+        {
+            // check 
+
         }
     }
 

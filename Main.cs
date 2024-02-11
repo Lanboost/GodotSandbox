@@ -7,7 +7,6 @@ using System.Collections.Generic;
 using DeBroglie.Rot;
 using Lanboost.PathFinding.Astar;
 using Lanboost.PathFinding.Graph;
-using System.Reflection.Emit;
 
 public interface IChunk
 {
@@ -193,6 +192,8 @@ public partial class Main : Node2D
 
     int mode = 0;
 
+    
+
     // Called every frame. 'delta' is the elapsed time since the previous frame.
     public override void _Process(double delta)
     {
@@ -203,6 +204,27 @@ public partial class Main : Node2D
         base._UnhandledKeyInput(@event);
         //SmoothTerrain(5, 5, 2, 1);
         //UpdateMap();
+
+        if (@event is InputEventKey keyEvent)
+        {
+            if (ssfStates.Count > 0)
+            {
+                if (keyEvent.IsPressed() && keyEvent.Keycode == Key.Q)
+                {
+                    ssfindex--;
+                    if (ssfindex == 0)
+                    {
+                        ssfindex = ssfStates.Count - 1;
+                    }
+                }
+                if (keyEvent.IsPressed() && keyEvent.Keycode == Key.E)
+                {
+                    ssfindex++;
+                    ssfindex = ssfindex % ssfStates.Count;
+                }
+                UpdateSSFState();
+            }
+        }
     }
 
     void SetCell(int x, int y, int value)
@@ -325,6 +347,9 @@ public partial class Main : Node2D
 
     public Vector2I start;
     public Vector2I end;
+
+    List<SSFState> ssfStates = new List<SSFState>();
+    int ssfindex = 0;
     public override void _UnhandledInput(InputEvent @event)
     {
         base._UnhandledInput(@event);
@@ -371,21 +396,73 @@ public partial class Main : Node2D
                     {
                         tilemap.SetCell(6, new Vector2I((int)right.X, (int)right.Y), 3, new Vector2I(9,0));
                     }
-
-                    var points = SimpleStupidFunnel.Run(start, end, edges);
+                    ssfStates.Clear();
+                    var points = SimpleStupidFunnel.Run(start, end, edges, ref ssfStates);
                     foreach (var point in points)
                     {
                         tilemap.SetCell(7, new Vector2I((int)point.X, (int)point.Y), 3, new Vector2I(6, 0));
                     }
+                    ssfindex = 0;
+                    UpdateSSFState();
 
                 }
-
-                
-
-
-
             }
         }
+    }
+
+    [Export]
+    public Line2D pathLine;
+
+    [Export]
+    public Line2D funnelLine;
+
+    [Export]
+    public Line2D leftLine;
+
+    [Export]
+    public Line2D rightLine;
+
+    [Export]
+    public Label helpLabel;
+
+    [Export]
+    public PointDrawer drawer;
+
+    public void UpdateSSFState()
+    {
+        var state = ssfStates[ssfindex];
+        helpLabel.Text = $"Left index: {state.leftIndex}\n"+
+            $"Right Index: {state.rightIndex}\n"+
+            $"Help: {state.help}";
+
+        pathLine.ClearPoints();
+        funnelLine.ClearPoints();
+        leftLine.ClearPoints();
+        rightLine.ClearPoints();
+        drawer.ClearPoints();
+
+        if (state.pointList != null)
+        {
+            foreach (var p in state.pointList) {
+                pathLine.AddPoint(new Vector2(p.X*32, p.Y*32));
+            }
+        }
+
+        drawer.AddPoint(state.funnel, Colors.Orange);
+
+        if(state.funnelSide != Vector2.Zero)
+        {
+            funnelLine.AddPoint(state.funnel * 32);
+            funnelLine.AddPoint((state.funnel+ state.funnelSide)*32);
+        }
+
+
+        leftLine.AddPoint(state.funnel*32);
+        leftLine.AddPoint((state.funnel + state.left) * 32);
+
+        rightLine.AddPoint(state.funnel * 32);
+        rightLine.AddPoint((state.funnel + state.right) * 32);
+
 
     }
 
