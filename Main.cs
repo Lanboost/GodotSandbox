@@ -94,8 +94,13 @@ public partial class Main : Node2D
         var msize = 20;
         // Set the output dimensions
         var topology = new GridTopology(msize, msize, periodic: false);
+
+        var options = new TilePropagatorOptions();
+        var random = new Random(0);
+
+        options.RandomDouble = () => { return random.NextDouble(); };
         // Acturally run the algorithm
-        var propagator = new TilePropagator(model, topology);
+        var propagator = new TilePropagator(model, topology, options);
 
         var status = propagator.Run();
         if (status != Resolution.Decided) throw new Exception("Undecided");
@@ -182,8 +187,69 @@ public partial class Main : Node2D
                 }
             }
         }*/
+        //TODO
+        graph = new NavMeshGraph();
+        graph.LoadChunk(new NavMeshChunk(0, 0, l));
 
-        graph = new NavMeshGraph(l);        
+
+        TileMapEvents.TileOnMouse += (tmap, tile, buttonEvent) =>
+        {
+            if (buttonEvent.ButtonIndex == MouseButton.Left && buttonEvent.IsPressed())
+            {
+
+                //var tile = tilemap.LocalToMap(tilemap.ToLocal(buttonEvent.Position / this.GetViewport().GetCamera2D().Scale));
+                GD.Print(tile);
+                if (!buttonEvent.AltPressed)
+                {
+                    start = tile;
+                }
+                else
+                {
+                    end = tile;
+                }
+
+                var edges = graph.FindPath(start, end);
+
+                tilemap.ClearLayer(4);
+                tilemap.ClearLayer(7);
+
+                tilemap.SetCell(7, start, 3, new Vector2I(0, 1));
+                tilemap.SetCell(7, end, 3, new Vector2I(0, 2));
+
+                if (edges != null)
+                {
+                    foreach (var edge in edges)
+                    {
+                        tilemap.DrawNavMeshRect(edge.to, 4, 3, new Vector2I(3, 0));
+                        //tilemap.DrawNavMeshRect(edge.right, 4, 3, new Vector2I(3, 0));
+                    }
+
+                    (var leftPoints, var rightPoints) = SimpleStupidFunnel.CreateFunnelPoints(start, end, edges);
+                    tilemap.ClearLayer(5);
+                    tilemap.ClearLayer(6);
+
+                    foreach (var left in leftPoints)
+                    {
+                        tilemap.SetCell(5, new Vector2I((int)left.X, (int)left.Y), 3, new Vector2I(8, 0));
+                    }
+
+                    foreach (var right in rightPoints)
+                    {
+                        tilemap.SetCell(6, new Vector2I((int)right.X, (int)right.Y), 3, new Vector2I(9, 0));
+                    }
+                    ssfStates.Clear();
+                    var points = SimpleStupidFunnel.Run(start, end, edges, ref ssfStates);
+                    foreach (var point in points)
+                    {
+                        tilemap.SetCell(7, new Vector2I((int)point.X, (int)point.Y), 3, new Vector2I(6, 0));
+                    }
+                    ssfindex = 0;
+                    UpdateSSFState();
+
+                }
+            }
+        };
+
     }
 
     int mode = 0;
@@ -341,68 +407,20 @@ public partial class Main : Node2D
     [Export]
     public TileMap tilemap;
 
+    [Export]
+    public TileMapEvents TileMapEvents;
+
     public Vector2I start;
     public Vector2I end;
 
     List<SSFState> ssfStates = new List<SSFState>();
     int ssfindex = 0;
-    public override void _UnhandledInput(InputEvent @event)
+
+    float zoom;
+    public float Zoom
     {
-        base._UnhandledInput(@event);
-
-        if(@event is InputEventMouseButton buttonEvent)
-        {
-            if(buttonEvent.ButtonIndex == MouseButton.Left && buttonEvent.IsPressed())
-            {
-                var tile = tilemap.LocalToMap(tilemap.ToLocal(buttonEvent.Position));
-                GD.Print(tile);
-                if(!buttonEvent.AltPressed) { 
-                    start = tile;
-                }
-                else
-                {
-                    end = tile;
-                }
-
-                var edges = graph.FindPath(start, end);
-
-                tilemap.ClearLayer(4);
-                tilemap.ClearLayer(7);
-
-                tilemap.SetCell(7, start, 3, new Vector2I(0, 1));
-                tilemap.SetCell(7, end, 3, new Vector2I(0, 2));
-
-                if (edges != null)
-                {
-                    foreach (var edge in edges) {
-                        tilemap.DrawNavMeshRect(edge.to, 4, 3, new Vector2I(3,0));
-                        //tilemap.DrawNavMeshRect(edge.right, 4, 3, new Vector2I(3, 0));
-                    }
-
-                    (var leftPoints, var rightPoints) = SimpleStupidFunnel.CreateFunnelPoints(start, end, edges);
-                    tilemap.ClearLayer(5);
-                    tilemap.ClearLayer(6);
-
-                    foreach(var left in leftPoints)
-                    {
-                        tilemap.SetCell(5, new Vector2I((int)left.X, (int)left.Y), 3, new Vector2I(8,0));
-                    }
-
-                    foreach (var right in rightPoints)
-                    {
-                        tilemap.SetCell(6, new Vector2I((int)right.X, (int)right.Y), 3, new Vector2I(9,0));
-                    }
-                    ssfStates.Clear();
-                    var points = SimpleStupidFunnel.Run(start, end, edges, ref ssfStates);
-                    foreach (var point in points)
-                    {
-                        tilemap.SetCell(7, new Vector2I((int)point.X, (int)point.Y), 3, new Vector2I(6, 0));
-                    }
-                    ssfindex = 0;
-                    UpdateSSFState();
-
-                }
-            }
+        get { return zoom; }
+        set { zoom = value;
         }
     }
 

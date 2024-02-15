@@ -4,10 +4,54 @@ using Lanboost.PathFinding.Graph;
 using System;
 using System.Collections.Generic;
 
+public struct NavigationPoint
+{
+    public float X;
+    public float Y;
+    public int Layer;
+
+    public NavigationPoint(float x, float y, int layer)
+    {
+        X = x;
+        Y = y;
+        Layer = layer;
+    }
+
+    public static NavigationPoint NaN = new NavigationPoint(float.NaN, float.NaN, int.MaxValue);
+}
+
 public class NavMesh
 {
+    int chunkSize;
 
+    /** This method will create a navmesh chunk, it will not link meshes towards neighbor chunks, 
+     * you need to explicity call GenerateAllRemoteLinks / GenerateRemoteLinks.
+     * 
+     */
+    public void GenerateChunk(int chunkX, int chunkY)
+    {
 
+    }
+
+    public void GenerateAllRemoteLinks(int chunkX, int chunkY) { }
+    public void GenerateRemoteLinks(int chunkX, int chunkY) { }
+
+    public void ReadChunk(int chunkX, int chunkY) { }
+    public void SaveChunk(int chunkX, int chunkY) { }
+
+    public void AddChunk() { }
+
+    public void RemoveChunk(int chunkX, int chunkY) { }
+
+    public NavigationPoint GetClosestMeshPoint(Vector2 point, int layer)
+    {
+        return NavigationPoint.NaN;
+    }
+
+    public List<NavigationPoint> FindPath(Vector2 from, Vector2 to)
+    {
+        return null;
+    }
 }
 
 
@@ -20,6 +64,9 @@ public class NavMeshEdge
     public Vector2 left;
     public Vector2 right;
     public float cost;
+    //used for remote edges
+    public ulong chunkKey = ulong.MaxValue;
+    public int toId;
 
     public NavMeshEdge(NavMeshRect to, Vector2 left, Vector2 right, float cost)
     {
@@ -36,6 +83,9 @@ public class NavMeshRect
     public int sy;
     public int width;
     public int height;
+    public int layer = 0;
+    // id is only for linking chunks together
+    public int id;
 
     public List<NavMeshEdge> edges = new List<NavMeshEdge>();
 
@@ -115,30 +165,136 @@ public class NavMeshRect
     }
 }
 
+public class NavMeshChunk
+{
+    public List<NavMeshRect> navMeshRects = new List<NavMeshRect>();
+    public int x;
+    public int y;
+    public NavMeshChunk(int x, int y, List<NavMeshRect> navMeshRects)
+    {
+        this.navMeshRects = navMeshRects;
+        this.x = x;
+        this.y = y;
+    }
+}
 
 public class NavMeshGraph : IGraph<NavMeshRect, NavMeshEdge>
 {
+
+    public static ulong PositionKey(int x, int y)
+    {
+        return (ulong) y >> 16 + x;
+    }
+
     AStar<NavMeshRect, NavMeshEdge> astar;
 
-    public List<NavMeshRect> navMeshRects = new List<NavMeshRect>();
+    public Dictionary<ulong, NavMeshChunk> chunks = new Dictionary<ulong, NavMeshChunk>();
+
 
     public Dictionary<NavMeshRect, NavMeshEdge> extraEndEdges = new Dictionary<NavMeshRect, NavMeshEdge>();
 
-    public NavMeshGraph(List<NavMeshRect> navMeshRects)
+    public NavMeshGraph()
     {
-        this.navMeshRects = navMeshRects;
         astar = new AStar<NavMeshRect, NavMeshEdge>(this, 100);
     }
 
-    public NavMeshRect GetRectFromPosition(Vector2I position)
+    void ConnectChunkLinks(NavMeshChunk from, NavMeshChunk to, ulong toKey)
     {
-        foreach (var rect in navMeshRects)
+        foreach(var rects in from.navMeshRects)
         {
-            if (rect.sx <= position.X && position.X < rect.sx + rect.width)
+            foreach(var edge in rects.edges)
             {
-                if (rect.sy <= position.Y && position.Y < rect.sy + rect.height)
+                if(edge.chunkKey == toKey)
                 {
-                    return rect;
+                    edge.to = to.navMeshRects[edge.toId];
+                }
+            }
+        }
+    }
+
+    void DisconnectChunkLinks(NavMeshChunk from, ulong toKey)
+    {
+        foreach (var rects in from.navMeshRects)
+        {
+            foreach (var edge in rects.edges)
+            {
+                if (edge.chunkKey == toKey)
+                {
+                    edge.to = null;
+                }
+            }
+        }
+    }
+
+    public void LoadChunk(NavMeshChunk chunk)
+    {
+        var chunkKey = PositionKey(chunk.x, chunk.y);
+        this.chunks.Add(chunkKey, chunk);
+        //iterate over surrounding chunks, and add remote edges if 
+
+        for(int y = -1; y <= 1; y++)
+        {
+            for (int x = -1; x <= 1; x++)
+            {
+                if(x == 0 && y==0)
+                {
+                    continue;
+                }
+
+                var key = PositionKey(chunk.x - x, chunk.y - y);
+                if(chunks.ContainsKey(key))
+                {
+                    var other = chunks[key];
+                    ConnectChunkLinks(chunk, other, key);
+                    ConnectChunkLinks(other, chunk, chunkKey);
+                }
+            }
+        }
+
+    }
+
+    public void UnloadChunk(int chunkX, int chunkY)
+    {
+        var chunkKey = PositionKey(chunkX, chunkY);
+        this.chunks.Remove(chunkKey);
+        //iterate over surrounding chunks, and remove remote edges if needed
+
+        for (int y = -1; y <= 1; y++)
+        {
+            for (int x = -1; x <= 1; x++)
+            {
+                if (x == 0 && y == 0)
+                {
+                    continue;
+                }
+
+                var key = PositionKey(chunkX - x, chunkY - y);
+                if (chunks.ContainsKey(key))
+                {
+                    var other = chunks[key];
+                    DisconnectChunkLinks(other, chunkKey);
+                }
+            }
+        }
+    }
+
+    public NavMeshRect GetRectFromPosition(Vector2 position, int layer)
+    {
+        var key = PositionKey((int)position.X, (int)position.Y);
+
+        if(chunks.ContainsKey(key))
+        {
+            foreach (var rect in chunks[key].navMeshRects)
+            {
+                if (rect.sx <= position.X && position.X < rect.sx + rect.width)
+                {
+                    if (rect.sy <= position.Y && position.Y < rect.sy + rect.height)
+                    {
+                        if(rect.layer ==  layer)
+                        {
+                            return rect;
+                        }
+                    }
                 }
             }
         }
@@ -147,8 +303,8 @@ public class NavMeshGraph : IGraph<NavMeshRect, NavMeshEdge>
 
     public void AddTemporaryStartEndNodes(NavMeshRect start, NavMeshRect end)
     {
-        var s = GetRectFromPosition(new Vector2I(start.sx, start.sy));
-        var e = GetRectFromPosition(new Vector2I(end.sx, end.sy));
+        var s = GetRectFromPosition(new Vector2(start.sx, start.sy), start.layer);
+        var e = GetRectFromPosition(new Vector2(end.sx, end.sy), end.layer);
 
         if (s == null || e == null)
         {
@@ -156,17 +312,26 @@ public class NavMeshGraph : IGraph<NavMeshRect, NavMeshEdge>
         }
         else
         {
-            foreach(var se in s.edges)
+            if (s == e)
             {
-                var cost = start.ManhattanDistance(se.to);
-                start.edges.Add(new NavMeshEdge(se.to, se.left, se.right, cost));
+                //start.edges.Add(new NavMeshEdge(end, se.left, se.right, 0));
+                throw new Exception("Shoudl ensure this doesnt happen...Lan...");
             }
-
-            extraEndEdges.Clear();
-            foreach (var ee in e.edges)
+            else
             {
-                var cost = end.ManhattanDistance(ee.to);
-                extraEndEdges.Add(ee.to,new NavMeshEdge(end, ee.right, ee.left, cost));
+
+                foreach (var se in s.edges)
+                {
+                    var cost = start.ManhattanDistance(se.to);
+                    start.edges.Add(new NavMeshEdge(se.to, se.left, se.right, cost));
+                }
+
+                extraEndEdges.Clear();
+                foreach (var ee in e.edges)
+                {
+                    var cost = end.ManhattanDistance(ee.to);
+                    extraEndEdges.Add(ee.to, new NavMeshEdge(end, ee.right, ee.left, cost));
+                }
             }
         }
     }
@@ -180,12 +345,20 @@ public class NavMeshGraph : IGraph<NavMeshRect, NavMeshEdge>
     {
         foreach (var edge in node.edges)
         {
+            if(edge.to == null)
+            {
+                continue;
+            }
             //var e = node != edge.left ? edge.left : edge.right;
             yield return new Edge<NavMeshRect, NavMeshEdge>(edge.to, edge);
         }
         if (extraEndEdges.ContainsKey(node))
         {
-            yield return new Edge<NavMeshRect, NavMeshEdge>(extraEndEdges[node].to, extraEndEdges[node]);
+            var extra = extraEndEdges[node];
+            if (extra.to != null)
+            {
+                yield return new Edge<NavMeshRect, NavMeshEdge>(extra.to, extra);
+            }
         }
     }
 

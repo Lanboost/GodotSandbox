@@ -1,13 +1,16 @@
-[gd_scene load_steps=5 format=3 uid="uid://chg8y8bocs84r"]
+[gd_scene load_steps=7 format=3 uid="uid://chg8y8bocs84r"]
 
 [ext_resource type="Script" path="res://Main.cs" id="1_hsdud"]
 [ext_resource type="TileSet" uid="uid://bbb2d0187ri6x" path="res://TestTileSet.tres" id="2_825p6"]
+[ext_resource type="Script" path="res://TileMapEvents.cs" id="3_7vs0c"]
 [ext_resource type="Script" path="res://PointDrawer.cs" id="3_h7w7l"]
 [ext_resource type="PackedScene" uid="uid://b6u45xsedicl2" path="res://point.tscn" id="4_nfgrn"]
+[ext_resource type="PackedScene" uid="uid://cnvmw8c7f37yg" path="res://zoom_pan_camera_2d.tscn" id="5_bpms5"]
 
-[node name="main" type="Node2D" node_paths=PackedStringArray("tilemap", "pathLine", "funnelLine", "leftLine", "rightLine", "helpLabel", "drawer")]
+[node name="main" type="Node2D" node_paths=PackedStringArray("tilemap", "TileMapEvents", "pathLine", "funnelLine", "leftLine", "rightLine", "helpLabel", "drawer")]
 script = ExtResource("1_hsdud")
 tilemap = NodePath("TileMap")
+TileMapEvents = NodePath("TileMap/TileMapEvents")
 pathLine = NodePath("Path")
 funnelLine = NodePath("Funnel")
 leftLine = NodePath("FunnelLeft")
@@ -69,6 +72,9 @@ layer_7/y_sort_origin = 0
 layer_7/z_index = 0
 layer_7/tile_data = PackedInt32Array()
 
+[node name="TileMapEvents" type="Node" parent="TileMap"]
+script = ExtResource("3_7vs0c")
+
 [node name="Path" type="Line2D" parent="."]
 width = 1.0
 default_color = Color(1, 0, 0, 1)
@@ -93,3 +99,7 @@ offset_bottom = 23.0
 script = ExtResource("3_h7w7l")
 scale = 32.0
 pointPrefab = ExtResource("4_nfgrn")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+
+[node name="ZoomPanCamera2D" parent="Camera2D" instance=ExtResource("5_bpms5")]
