@@ -4,7 +4,7 @@ using System;
 
 public partial class TileMapEvents : Node
 {
-    public delegate void OnTileMouseEvent(TileMap tileMap, Vector2I tile, InputEventMouseButton mouseEvent);
+    public delegate void OnTileMouseEvent(TileMap tileMap, Vector2I tile, Vector2 offset, InputEventMouseButton mouseEvent);
     
     public event OnTileMouseEvent TileOnMouse;
 
@@ -23,9 +23,11 @@ public partial class TileMapEvents : Node
             var tilemap = this.GetParent<TileMap>();
 
             var tile = tilemap.LocalToMap(tilemap.ToLocal(truePosition));
+            var offset = tilemap.ToLocal(truePosition)/tilemap.TileSet.TileSize - tile;
 
-            
-            TileOnMouse?.Invoke(tilemap, tile, buttonEvent);
+
+
+            TileOnMouse?.Invoke(tilemap, tile, offset, buttonEvent);
         }
     }
 }

@@ -48,7 +48,7 @@ public static class ListCopy
 public class SimpleStupidFunnel
 {
 
-    public static List<Vector2> Run(Vector2I start, Vector2I end, List<NavMeshEdge> edges, ref List<SSFState> steps)
+    public static List<Vector2> Run(Vector2 start, Vector2 end, List<NavMeshEdge> edges, ref List<SSFState> steps)
     {
         List<Vector2> pointList = new List<Vector2>();
         (var leftPoints, var rightPoints) = CreateFunnelPoints(start, end, edges);

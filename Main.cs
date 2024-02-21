@@ -9,6 +9,7 @@ using Lanboost.PathFinding.Astar;
 using Lanboost.PathFinding.Graph;
 using System.Collections;
 using System.Drawing;
+
 public enum ENineCollisionFlag
 {
     None = 0,
@@ -25,25 +26,101 @@ public enum ENineCollisionFlag
     NorthWest = 256
 }
 
-public interface ICollisionWorld
+public interface ICollisionWorld<T>
 {
     public int ChunkSize();
-    public IEnumerable<bool> GetChunk(int x, int y);
+
+    public float TileScale();
+    public IEnumerable<T> GetChunk(int x, int y);
+
+    public IEnumerable<ulong> GetAvailableChunks();
 }
 
-public interface INineCollisionWorld
+public interface INineCollisionWorld: ICollisionWorld<int>
 {
-    public int ChunkSize();
-    public IEnumerable<int> GetChunk(int x, int y);
 }
 
-public class ExpandedTileCollisionWorld : ICollisionWorld
+public interface IBaseCollisionWorld : ICollisionWorld<bool>
 {
-    ICollisionWorld world;
+}
+
+public class SubdivideCollisionWorld : IBaseCollisionWorld
+{
+    bool[] rowFlags;
+    IBaseCollisionWorld world;
+    int divisions;
+
+    public SubdivideCollisionWorld(IBaseCollisionWorld world, int divisions)
+    {
+        this.world = world;
+        this.divisions = divisions;
+        rowFlags = new bool[world.ChunkSize()];
+    }
+
+    public int ChunkSize()
+    {
+        return world.ChunkSize()* divisions;
+    }
+
+    IEnumerable<bool> ExpandTileFlagRowToTileRows(bool[] flags)
+    {
+        for (int row = 0; row < 3; row++)
+        {
+            for (int ix = 0; ix < flags.Length; ix++)
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    yield return flags[ix];
+                }
+            }
+        }
+    }
+
+
+    public IEnumerable<bool> GetChunk(int x, int y)
+    {
+        int cx = 0;
+        int cy = 0;
+        // We need to expand each cell into a 3x3, so store an entire row, then output 3 rows back with 3 times the cells
+        foreach (var blocked in world.GetChunk(x, y))
+        {
+            rowFlags[cx] = blocked;
+            cx++;
+            if (cx == world.ChunkSize())
+            {
+                foreach (var temp in ExpandTileFlagRowToTileRows(rowFlags))
+                {
+                    yield return temp;
+                }
+
+                cx = 0;
+                cy++;
+            }
+        }
+    }
+
+    public IEnumerable<ulong> GetAvailableChunks()
+    {
+        foreach (var key in world.GetAvailableChunks())
+        {
+            yield return key;
+        }
+    }
+
+    public float TileScale()
+    {
+        return world.TileScale() * 1/3f;
+    }
+}
+
+
+public class ExpandedTileCollisionWorld : IBaseCollisionWorld
+{
+    IBaseCollisionWorld world;
     bool[][] tempChunk;
     bool[] tempRow;
 
-    public ExpandedTileCollisionWorld(ICollisionWorld world)
+    public ExpandedTileCollisionWorld(IBaseCollisionWorld world)
     {
         this.world = world;
 
@@ -80,8 +157,7 @@ public class ExpandedTileCollisionWorld : ICollisionWorld
 
     void LoadSurroundingChunksIntoTemp(int x, int y)
     {
-        int cx = 0;
-        int cy = 0;
+        
         // Copy over surrounding chunks from underlying world
         for (int iy = -1; iy <= 1; iy++)
         {
@@ -92,51 +168,52 @@ public class ExpandedTileCollisionWorld : ICollisionWorld
                     continue;
                 }
 
+                int cx = 0;
+                int cy = 0;
                 foreach (var blocked in world.GetChunk(x + ix, y + iy))
                 {
                     int nx = -1;
                     int ny = -1;
                     if (ix == -1)
                     {
-                        if (x == this.ChunkSize() - 1)
+                        if (cx == this.ChunkSize() - 1)
                         {
                             nx = 0;
                         }
                     }
                     else if (ix == 1)
                     {
-                        if (x == 0)
+                        if (cx == 0)
                         {
-                            nx = this.ChunkSize();
+                            nx = this.ChunkSize() + 1;
                         }
+                    }
+                    else
+                    {
+                        nx = cx + 1;
                     }
 
                     if (iy == -1)
                     {
-                        if (y == this.ChunkSize() - 1)
+                        if (cy == this.ChunkSize() - 1)
                         {
                             ny = 0;
                         }
                     }
                     else if (iy == 1)
                     {
-                        if (y == 0)
+                        if (cy == 0)
                         {
-                            ny = this.ChunkSize();
+                            ny = this.ChunkSize() + 1;
                         }
                     }
-
+                    else
+                    {
+                        ny = cy + 1;
+                    }
                     if (nx >= 0 && ny >= 0)
                     {
                         tempChunk[ny][nx] = blocked;
-                    }
-                    else if (nx >= 0)
-                    {
-                        tempChunk[cy + 1][nx] = blocked;
-                    }
-                    else if (ny >= 0)
-                    {
-                        tempChunk[ny][cx + 1] = blocked;
                     }
 
                     cx++;
@@ -146,6 +223,7 @@ public class ExpandedTileCollisionWorld : ICollisionWorld
                         cy++;
                     }
                 }
+
             }
         }
     }
@@ -157,6 +235,7 @@ public class ExpandedTileCollisionWorld : ICollisionWorld
         LoadSurroundingChunksIntoTemp(x, y);
 
         var size = tempChunk.Length;
+
         // Expand in X
         for (int outer = 0; outer < size; outer++)
         {
@@ -172,7 +251,7 @@ public class ExpandedTileCollisionWorld : ICollisionWorld
                 for (int i = -1; i <= 1; i++)
                 {
                     var ix = inner + i;
-                    if(ix > 0 && ix < size)
+                    if(ix >= 0 && ix < size)
                     {
                         blocked = blocked || tempRow[ix];
                     }
@@ -196,7 +275,7 @@ public class ExpandedTileCollisionWorld : ICollisionWorld
                 for (int i = -1; i <= 1; i++)
                 {
                     var ix = inner + i;
-                    if (ix > 0 && ix < size)
+                    if (ix >= 0 && ix < size)
                     {
                         blocked = blocked || tempRow[ix];
                     }
@@ -206,17 +285,30 @@ public class ExpandedTileCollisionWorld : ICollisionWorld
         }
 
         // Return "main" chunk
-        for (int iy = 0; iy < size; iy++)
+        for (int iy = 0; iy < this.ChunkSize(); iy++)
         {
-            for (int ix = 0; ix < size; ix++)
+            for (int ix = 0; ix < this.ChunkSize(); ix++)
             {
                 yield return tempChunk[iy + 1][ix + 1];
             }
         }
     }
+
+    public IEnumerable<ulong> GetAvailableChunks()
+    {
+        foreach(var key in world.GetAvailableChunks())
+        {
+            yield return key;
+        }
+    }
+
+    public float TileScale()
+    {
+        return world.TileScale();
+    }
 }
 
-public class NineBlockCollisionChunk : ICollisionWorld
+public class NineBlockCollisionWorld : IBaseCollisionWorld
 {
     INineCollisionWorld world;
     int[] rowFlags;
@@ -243,7 +335,7 @@ public class NineBlockCollisionChunk : ICollisionWorld
         }
     };
 
-    public NineBlockCollisionChunk(INineCollisionWorld world)
+    public NineBlockCollisionWorld(INineCollisionWorld world)
     {
         this.world = world;
         rowFlags = new int[world.ChunkSize()];
@@ -299,64 +391,39 @@ public class NineBlockCollisionChunk : ICollisionWorld
             }
         }
     }
-}
 
-
-
-public class TestChunk:IChunk
-{
-    public int[][] layout;
-
-    public TestChunk(int[][] layout)
+    public IEnumerable<ulong> GetAvailableChunks()
     {
-        this.layout = layout;
-    }
-
-    public bool Blocked(int x, int y)
-    {
-        return layout[y][x] == 0;
-    }
-
-    public int Size()
-    {
-        return layout.Length;
-    }
-}
-
-
-
-public static class MyExtensions
-{
-    public static void DrawNavMeshRect(this TileMap tilemap, NavMeshRect rect, int layer, int sprite, Vector2I spritePos)
-    {
-        for (var cy = rect.sy; cy < rect.sy + rect.height; cy++)
+        foreach (var key in world.GetAvailableChunks())
         {
-            for (var cx = rect.sx; cx < rect.sx + rect.width; cx++)
-            {
-                tilemap.SetCell(layer, new Vector2I(cx, cy), sprite, spritePos);
-            }
+            yield return key;
         }
     }
+
+    public float TileScale()
+    {
+        return world.TileScale() * 1 / 3f;
+    }
 }
 
 
-public partial class Main : Node2D
+
+public class WaveFunctionCollapseWorld: IBaseCollisionWorld
 {
-    float[][] HeightData;
+    int chunkSize = 8;
+    public Dictionary<ulong, bool[][]> chunks = new Dictionary<ulong, bool[][]> ();
 
-    
-    NavMeshGraph graph;
-
-    // Called when the node enters the scene tree for the first time.
-    public override void _Ready()
+    public WaveFunctionCollapseWorld(int chunkSize)
     {
-        GD.Print("Hello world");
+        this.chunkSize = chunkSize;
+    }
+
+    public void GenerateChunk(int x, int y)
+    {
         ITopoArray<char> sample = TopoArray.Create(new[]
         {
             //https://github.com/mxgmn/WaveFunctionCollapse
             //0 water, 1 grass, 2 mountain, 3 sand
-
-
             new[] { '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '1', '0', '0', '0'},
             new[] { '0', '0', '0', '1', '0', '0', '0', '0', '0', '1', '1', '1', '1', '1', '1', '0'},
             new[] { '0', '1', '1', '1', '1', '1', '0', '0', '0', '1', '1', '1', '1', '1', '1', '0'},
@@ -373,17 +440,15 @@ public partial class Main : Node2D
             new[] { '0', '0', '1', '1', '1', '1', '1', '1', '0', '0', '1', '1', '1', '1', '0', '0'},
             new[] { '0', '0', '1', '1', '1', '1', '1', '1', '0', '0', '0', '0', '1', '0', '0', '0'},
             new[] { '0', '0', '0', '1', '0', '0', '0', '0', '0', '0', '0', '0', '1', '0', '0', '0'}
-
-
         }, periodic: false);
         // Specify the model used for generation
         var model = new OverlappingModel(sample.ToTiles(), 3, 4, true);
-        var msize = 20;
+        var msize = this.ChunkSize();
         // Set the output dimensions
         var topology = new GridTopology(msize, msize, periodic: false);
 
         var options = new TilePropagatorOptions();
-        var random = new Random(0);
+        var random = new Random(y*1000+x);
 
         options.RandomDouble = () => { return random.NextDouble(); };
         // Acturally run the algorithm
@@ -392,56 +457,335 @@ public partial class Main : Node2D
         var status = propagator.Run();
         if (status != Resolution.Decided) throw new Exception("Undecided");
         var output = propagator.ToValueArray<char>();
-        // Display the results
-        for (var y = 0; y < msize; y++)
+        
+        var data = new bool[msize][];
+        for (var iy = 0; iy < msize; iy++)
         {
-            var str = "";
-            for (var x = 0; x < msize; x++)
+            data[iy] = new bool[msize];
+            for (var ix = 0; ix < msize; ix++)
             {
-                str += output.Get(x, y);
-                if (output.Get(x, y) == '0')
+                if (output.Get(ix, iy) == '0')
                 {
-                    tilemap.SetCell(0, new Vector2I(x, y), 3, new Vector2I(0, 0));
-                }else
-                {
-                    tilemap.SetCell(0, new Vector2I(x, y), 3, new Vector2I(2, 0));
-                }
-            }
-            GD.Print(str);
-        }
-
-
-        var size = 10;
-        HeightData = new float[size][];
-        for (int y = 0; y < size; y++)
-        {
-            HeightData[y] = new float[size];
-            for (int x = 0; x < size; x++)
-            {
-                HeightData[y][x] = y*size+x+1;
-                //tilemap.SetCell(0, new Vector2I(x, y), 2, new Vector2I(x, y));
-            }
-        }
-        //UpdateMap();
-
-        var data = new int[msize][];
-        for (var y = 0; y < msize; y++)
-        {
-            data[y] = new int[msize];
-            for (var x = 0; x < msize; x++)
-            {
-                if (output.Get(x, y) == '0')
-                {
-                    data[y][x] = 0;
+                    data[iy][ix] = true;
                 }
                 else
                 {
-                    data[y][x] = 1;
+                    data[iy][ix] = false;
                 }
             }
         }
+        GD.Print(x, y, PositionKey.Key(x, y));
+        this.chunks.Add(PositionKey.Key(x, y), data);
+    }
+
+    public int ChunkSize()
+    {
+        return chunkSize;
+    }
+
+    public IEnumerable<bool> GetChunk(int x, int y)
+    {
+        var key = PositionKey.Key(x, y);
+        if (key == ulong.MaxValue || !chunks.ContainsKey(key))
+        {
+            for (var iy = 0; iy < ChunkSize(); iy++)
+            {
+                for (var ix = 0; ix < ChunkSize(); ix++)
+                {
+                    yield return true;
+                }
+            }
+        }
+        else
+        {
+            if (chunks.ContainsKey(key))
+            {
+                var data = chunks[key];
+                for (var iy = 0; iy < data.Length; iy++)
+                {
+                    for (var ix = 0; ix < data[iy].Length; ix++)
+                    {
+                        yield return data[iy][ix];
+                    }
+                }
+            }
+        }
+    }
+
+    public IEnumerable<ulong> GetAvailableChunks()
+    {
+        foreach(var key in chunks.Keys)
+        {
+            yield return key;
+        }
+    }
+
+    public float TileScale()
+    {
+        return 1;
+    }
+}
 
 
+
+public static class MyExtensions
+{
+    public static IEnumerable<(int, int, T)> GetChunkSimple<T>(this ICollisionWorld<T> world, int x, int y)
+    {
+        int cx = 0;
+        int cy = 0;
+        // Copy over from underlying world, with 1,1 in offset (so we can get blocked from surrounding chunks)
+        foreach (var value in world.GetChunk(x, y))
+        {
+            yield return (cx, cy, value);
+            cx++;
+            if (cx == world.ChunkSize())
+            {
+                cx = 0;
+                cy++;
+            }
+        }
+    }
+}
+public delegate void PropertyChangeEvent(object sender);
+public class WorldData
+{
+    public object baseWorld;
+
+    public List<object> worldCollisionSteps = new List<object>();
+
+    public WorldData(object baseWorld)
+    {
+        this.baseWorld = baseWorld;
+    }
+
+    
+
+    protected int _DisplayedCollisionLayer = -1;
+    #region property change event
+    public int DisplayedCollisionLayer
+    {
+        get => _DisplayedCollisionLayer;
+        set
+        {
+            if (_DisplayedCollisionLayer == value)
+            {
+                return;
+            }
+            _DisplayedCollisionLayer = value;
+            DisplayedCollisionLayerOnChanged?.Invoke(this);
+        }
+    }
+    public event PropertyChangeEvent DisplayedCollisionLayerOnChanged;
+    #endregion
+
+
+    protected bool _DisplayCollider;
+    #region property change event
+    public bool DisplayCollider
+    {
+        get => _DisplayCollider;
+        set
+        {
+            if (_DisplayCollider == value)
+            {
+                return;
+            }
+            _DisplayCollider = value;
+            DisplayColliderOnChanged?.Invoke(this);
+        }
+    }
+    public event PropertyChangeEvent DisplayColliderOnChanged;
+    #endregion
+
+
+
+
+}
+
+public partial class Main : Node2D
+{
+    float[][] HeightData;
+
+    
+    public NavMesh navMesh;
+
+
+
+    protected WorldData _World;
+    #region property change event
+    public WorldData World
+    {
+        get => _World;
+        set
+        {
+            if (_World == value)
+            {
+                return;
+            }
+            _World = value;
+            WorldOnChanged?.Invoke(this);
+        }
+    }
+    public event PropertyChangeEvent WorldOnChanged;
+    #endregion
+
+
+
+    protected bool _NavMeshUpdated;
+    #region property change event
+    public bool NavMeshUpdated
+    {
+        get => _NavMeshUpdated;
+        set
+        {
+            if (_NavMeshUpdated == value)
+            {
+                return;
+            }
+            _NavMeshUpdated = value;
+            NavMeshUpdatedOnChanged?.Invoke(this);
+        }
+    }
+    public event PropertyChangeEvent NavMeshUpdatedOnChanged;
+    #endregion
+
+
+
+    protected Vector2 _StartPosition = Vector2.Inf;
+    #region property change event
+    public Vector2 StartPosition
+    {
+        get => _StartPosition;
+        set
+        {
+            if (_StartPosition == value)
+            {
+                return;
+            }
+            _StartPosition = value;
+            StartPositionOnChanged?.Invoke(this);
+        }
+    }
+    public event PropertyChangeEvent StartPositionOnChanged;
+    #endregion
+
+
+    protected Vector2 _EndPosition = Vector2.Inf;
+    #region property change event
+    public Vector2 EndPosition
+    {
+        get => _EndPosition;
+        set
+        {
+            if (_EndPosition == value)
+            {
+                return;
+            }
+            _EndPosition = value;
+            EndPositionOnChanged?.Invoke(this);
+        }
+    }
+    public event PropertyChangeEvent EndPositionOnChanged;
+    #endregion
+
+
+    protected List<NavigationPoint> _Path;
+    #region property change event
+    public List<NavigationPoint> Path
+    {
+        get => _Path;
+        set
+        {
+            if (_Path == value)
+            {
+                return;
+            }
+            _Path = value;
+            PathOnChanged?.Invoke(this);
+        }
+    }
+    public event PropertyChangeEvent PathOnChanged;
+    #endregion
+
+
+
+
+    // Called when the node enters the scene tree for the first time.
+    public override void _Ready()
+    {
+        toggleCollisionDisplay.Pressed += () =>
+        {
+            this.World.DisplayCollider = !this.World.DisplayCollider;
+        };
+
+        toggleCollisionlayerButton.ItemSelected += (index) =>
+        {
+            this.World.DisplayedCollisionLayer = (int)index;
+        };
+
+        this.WorldOnChanged += (sender) =>
+        {
+            while (toggleCollisionlayerButton.ItemCount > 0)
+            {
+                toggleCollisionlayerButton.RemoveItem(0);
+            }
+            toggleCollisionlayerButton.AddItem("Base colliders");
+            foreach (var layer in World.worldCollisionSteps)
+            {
+                toggleCollisionlayerButton.AddItem(layer.GetType().Name);
+            }
+
+        };
+
+
+        var baseworld = new WaveFunctionCollapseWorld(64);
+        
+        for(int y = 0; y<2; y++)
+        {
+            for (int x = 0; x < 2; x++)
+            {
+                baseworld.GenerateChunk(x, y);
+            }
+        }
+
+        var wd = new WorldData(baseworld);
+        var subdivide = new SubdivideCollisionWorld(baseworld, 3);
+        wd.worldCollisionSteps.Add(subdivide);
+        var worldCollision = new ExpandedTileCollisionWorld(subdivide);
+        wd.worldCollisionSteps.Add(worldCollision);
+        World = wd;
+
+        navMesh = new NavMesh(worldCollision);
+
+        
+        TileMapEvents.TileOnMouse += (tmap, tile, offset, buttonEvent) =>
+        {
+            if (buttonEvent.ButtonIndex == MouseButton.Left && buttonEvent.IsPressed())
+            {
+                if (buttonEvent.ShiftPressed)
+                {
+                    this.StartPosition = tile + offset;
+                    UpdatePath();
+                }
+                else if (buttonEvent.AltPressed)
+                {
+                    this.EndPosition = tile + offset;
+                    UpdatePath();
+                }
+                else
+                {
+                    navMesh.GenerateChunk(tile.X / worldCollision.ChunkSize(), tile.Y / worldCollision.ChunkSize());
+                    NavMeshUpdated = !NavMeshUpdated;
+                }
+            }
+        };
+
+        
+
+
+
+        /*
         var tc = new TestChunk(data);
         var nc = new NavMeshCreator();
         var l = nc.Create(tc);
@@ -455,26 +799,7 @@ public partial class Main : Node2D
             i += 1;
             i = i % 100;
         }
-        /*
-        foreach (var e in edges)
-        {
-            var ed = e.edge;
-            if(ed.width == 0)
-            {
-                for(int y = ed.sy; y < ed.sy+ed.height; y++)
-                {
-                    tilemap.SetCell(2, new Vector2I(ed.sx, y), 3, new Vector2I(7, 0));
-                }
-            }
-            else
-            {
-                for (int x = ed.sx; x < ed.sx+ed.width; x++)
-                {
-                    tilemap.SetCell(3, new Vector2I(x, ed.sy), 3, new Vector2I(4, 0));
-                }
-            }
-        }*/
-        //TODO
+
         graph = new NavMeshGraph();
         graph.LoadChunk(new NavMeshChunk(0, 0, l));
 
@@ -536,11 +861,34 @@ public partial class Main : Node2D
                 }
             }
         };
+        */
 
     }
 
+
     int mode = 0;
 
+
+    void UpdatePath()
+    {
+        GD.Print(StartPosition);
+        GD.Print(EndPosition);
+        if (StartPosition == Vector2.Inf || EndPosition == Vector2.Inf)
+        {
+            return;
+        }
+
+
+        var path = navMesh.FindPath(new NavigationPoint(StartPosition.X, StartPosition.Y,0), new NavigationPoint(EndPosition.X, EndPosition.Y, 0));
+        if (path != null)
+        {
+            this.Path = path;
+            GD.Print(path.Count);
+        }
+        else {
+            GD.Print("No path");
+        }
+    }
     
 
     // Called every frame. 'delta' is the elapsed time since the previous frame.
@@ -728,6 +1076,12 @@ public partial class Main : Node2D
 
     [Export]
     public PointDrawer drawer;
+
+    [Export]
+    public Button toggleCollisionDisplay;
+
+    [Export]
+    public OptionButton toggleCollisionlayerButton;
 
     public void UpdateSSFState()
     {

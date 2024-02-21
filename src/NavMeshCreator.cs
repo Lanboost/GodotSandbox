@@ -1,84 +1,117 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 
 public class NavMeshCreator
 {
-    NavMeshRect ExpandRectGreedy(bool[][] usedCurrent, int sx, int sy, int size)
+    class Rect
     {
-        int ex = sx;
-        int ey = sy;
-        while (ex < size - 1)
+        public int sx;
+        public int sy;
+        public int width;
+        public int height;
+        public Rect(int sx, int sy, int width, int height)
         {
-            if (!usedCurrent[sy][ex + 1])
-            {
-                ex++;
-                usedCurrent[sy][ex] = true;
-            }
-            else
-            {
-                break;
-            }
+            this.sx = sx;
+            this.sy = sy;
+            this.width = width;
+            this.height = height;
         }
-
-        while (ey < size - 1)
-        {
-            var ok = true;
-            for (int x = sx; x <= ex; x++)
-            {
-                if (usedCurrent[ey + 1][x])
-                {
-                    ok = false;
-                    break;
-                }
-            }
-
-            if (ok)
-            {
-                ey++;
-                for (int x = sx; x <= ex; x++)
-                {
-                    usedCurrent[ey][x] = true;
-                }
-            }
-            else
-            {
-                break;
-            }
-        }
-        return new NavMeshRect(sx, sy, ex - sx + 1, ey - sy + 1);
     }
 
-    public List<NavMeshRect> CreateGreedy(IChunk chunk)
-    {
-        List<NavMeshRect> rects = new List<NavMeshRect>();
-        var size = chunk.Size();
+    IBaseCollisionWorld world;
+    bool[][] used;
 
-        bool[][] used = new bool[size][];
+    public NavMeshCreator(IBaseCollisionWorld world)
+    {
+        this.world = world;
+        var size = world.ChunkSize();
+        used = new bool[size][];
         for (int y = 0; y < used.Length; y++)
         {
             used[y] = new bool[size];
-            for (int x = 0; x < used[y].Length; x++)
-            {
-                used[y][x] = chunk.Blocked(x, y);
-            }
         }
-
-        for (int y = 0; y < used.Length; y++)
-        {
-            for (int x = 0; x < used[y].Length; x++)
-            {
-                if (!used[y][x])
-                {
-                    var rect = ExpandRectGreedy(used, x, y, size);
-                    rects.Add(rect);
-                }
-            }
-        }
-        return rects;
     }
 
-    public bool ExpandRect(bool[][] used, NavMeshRect rect, bool horizontal)
+
+
+
+    /*   NavMeshRect ExpandRectGreedy(bool[][] usedCurrent, int sx, int sy, int size)
+       {
+           int ex = sx;
+           int ey = sy;
+           while (ex < size - 1)
+           {
+               if (!usedCurrent[sy][ex + 1])
+               {
+                   ex++;
+                   usedCurrent[sy][ex] = true;
+               }
+               else
+               {
+                   break;
+               }
+           }
+
+           while (ey < size - 1)
+           {
+               var ok = true;
+               for (int x = sx; x <= ex; x++)
+               {
+                   if (usedCurrent[ey + 1][x])
+                   {
+                       ok = false;
+                       break;
+                   }
+               }
+
+               if (ok)
+               {
+                   ey++;
+                   for (int x = sx; x <= ex; x++)
+                   {
+                       usedCurrent[ey][x] = true;
+                   }
+               }
+               else
+               {
+                   break;
+               }
+           }
+           return new NavMeshRect(sx, sy, ex - sx + 1, ey - sy + 1);
+       }
+
+       public List<NavMeshRect> CreateGreedy(IChunk chunk)
+       {
+           List<NavMeshRect> rects = new List<NavMeshRect>();
+           var size = chunk.Size();
+
+           bool[][] used = new bool[size][];
+           for (int y = 0; y < used.Length; y++)
+           {
+               used[y] = new bool[size];
+               for (int x = 0; x < used[y].Length; x++)
+               {
+                   used[y][x] = chunk.Blocked(x, y);
+               }
+           }
+
+           for (int y = 0; y < used.Length; y++)
+           {
+               for (int x = 0; x < used[y].Length; x++)
+               {
+                   if (!used[y][x])
+                   {
+                       var rect = ExpandRectGreedy(used, x, y, size);
+                       rects.Add(rect);
+                   }
+               }
+           }
+           return rects;
+       }
+    */
+    bool ExpandRect(bool[][] used, Rect rect, bool horizontal)
     {
         if (horizontal)
         {
@@ -117,26 +150,32 @@ public class NavMeshCreator
     // Max diff and max size is important. Having larger numbers, reduces the complexity of the mesh.
     // however it also introduces the potential for suboptimal paths.
     // having the small values will also force the mesh to become fine and will end up restricting the funnel.
-    public List<NavMeshRect> Create(IChunk chunk, int maxDiff = 2, int maxSize = 10)
+    public List<NavMeshRect> Create(int cx, int cy, int maxDiff = 2, int maxSize = 10)
     {
         List<NavMeshRect> rects = new List<NavMeshRect>();
-        var size = chunk.Size();
+        var size = world.ChunkSize();
 
-        bool[][] used = new bool[size][];
-        for (int y = 0; y < used.Length; y++)
+
+        int ccx = 0;
+        int ccy = 0;
+        // Copy over from underlying world, with 1,1 in offset (so we can get blocked from surrounding chunks)
+        foreach (var blocked in world.GetChunk(cx, cy))
         {
-            used[y] = new bool[size];
-            for (int x = 0; x < used[y].Length; x++)
+            used[ccy][ccx] = blocked;
+            ccx++;
+            if (ccx == size)
             {
-                used[y][x] = chunk.Blocked(x, y);
+                ccx = 0;
+                ccy++;
             }
         }
+        var scale = world.TileScale();
 
-        NavMeshRect current = new NavMeshRect(0, 0, 0, 0);
+        Rect current = new Rect(0, 0, 0, 0);
         while (true)
         {
             int bestScore = -1;
-            NavMeshRect best = new NavMeshRect(0, 0, 0, 0);
+            Rect best = new Rect(0, 0, 0, 0);
 
             for (int y = 0; y < used.Length; y++)
             {
@@ -199,7 +238,8 @@ public class NavMeshCreator
 
             if (bestScore > 0)
             {
-                rects.Add(best);
+                //TODO rects.Add(best);
+                rects.Add(new NavMeshRect(best.sx* scale, best.sy* scale, best.width * scale, best.height * scale));
 
                 for (int y = best.sy; y < best.sy + best.height; y++)
                 {
