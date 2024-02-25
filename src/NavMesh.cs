@@ -4,6 +4,7 @@ using Lanboost.PathFinding.Graph;
 using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;
+using static Godot.Time;
 
 public struct NavigationPoint
 {
@@ -48,15 +49,51 @@ public class NavMesh
         this.graph.LoadChunk(chunk);
     }
 
-    public void GenerateAllRemoteLinks(int chunkX, int chunkY) { }
-    public void GenerateRemoteLinks(int chunkX, int chunkY) { }
+    public void GenerateAllRemoteLinks(int chunkX, int chunkY) {
+        foreach (EDirection value in Enum.GetValues(typeof(EDirection)))
+        {
+            GenerateRemoteLinks(chunkX, chunkY, value);
+        }
+    }
+    public void GenerateRemoteLinks(int chunkX, int chunkY, EDirection direction) {
+
+        var offset = DirectionUtil.Offset(direction);
+        var opposite = DirectionUtil.Opposite(direction);
+
+        var fromKey = PositionKey.Key(chunkX, chunkY);
+        var toKey = PositionKey.Key(chunkX+ offset.X, chunkY+ offset.Y);
+
+        var from = this.graph.GetChunk(fromKey);
+        var to = this.graph.GetChunk(toKey);
+
+        if (from == null || to == null) return;
+
+        this.graph.UnloadChunk(chunkX, chunkY);
+        this.graph.UnloadChunk(chunkX + offset.X, chunkY + offset.Y);
+
+        
+
+        (var fromEdges,var toEdges) = this.creator.CreateRemoteEdges(fromKey, toKey, from.navMeshRects, to.navMeshRects);
+
+        from.remoteNavMeshEdges[(int)direction] = fromEdges;
+        to.remoteNavMeshEdges[(int)opposite] = toEdges;
+
+        from.remoteEdgeFlags = from.remoteEdgeFlags | (int) DirectionUtil.BitFlag(direction);
+        to.remoteEdgeFlags = to.remoteEdgeFlags | (int)DirectionUtil.BitFlag(opposite);
+
+        this.graph.LoadChunk(from);
+        this.graph.LoadChunk(to);
+
+    }
 
     public void ReadChunk(int chunkX, int chunkY) { }
     public void SaveChunk(int chunkX, int chunkY) { }
 
     public void AddChunk() { }
 
-    public void RemoveChunk(int chunkX, int chunkY) { }
+    public void RemoveChunk(int chunkX, int chunkY) {
+        this.graph.UnloadChunk(chunkX,chunkY);
+    }
 
     public NavigationPoint GetClosestMeshPoint(Vector2 point, int layer)
     {
@@ -65,6 +102,26 @@ public class NavMesh
 
     public List<NavigationPoint> FindPath(NavigationPoint from, NavigationPoint to)
     {
+        // Ensure start and end is not in same rect
+        var s = this.graph.GetRectFromPosition(new NavMeshRect(from.X, from.Y, 0,0, from.Layer));
+        var e = this.graph.GetRectFromPosition(new NavMeshRect(to.X, to.Y, 0, 0, to.Layer));
+
+        if (s == null || e == null)
+        {
+            return null;
+        }
+        else
+        {
+            if (s == e)
+            {
+                List<NavigationPoint> path = new List<NavigationPoint>();
+                path.Add(from);
+                path.Add(to);
+                return path;
+            }
+        }
+
+
         var gpath = this.graph.FindPath(from, to);
         if(gpath != null)
         {
@@ -79,6 +136,9 @@ public class NavMesh
             path.Add(to);
             return path;
             */
+
+
+
 
             List<NavigationPoint> path = new List<NavigationPoint>();
             path.Add(from);
@@ -148,12 +208,14 @@ public class NavMeshRect
 
     public List<NavMeshEdge> edges = new List<NavMeshEdge>();
 
-    public NavMeshRect(float sx, float sy, float width, float height)
+    public NavMeshRect(float sx, float sy, float width, float height, int layer, int id = 0)
     {
         this.sx = sx;
         this.sy = sy;
         this.width = width;
         this.height = height;
+        this.layer = layer;
+        this.id = id;
     }
 
     public float ManhattanDistance(NavMeshRect other)
@@ -243,7 +305,73 @@ public class NavMeshRect
     }
 }
 
-public enum ERemoteEdgeGenerated
+public enum EDirection
+{
+    North = 0,
+    NorthEast = 1,
+    East = 2,
+    SouthEast = 3,
+    South = 4,
+    SouthWest = 5,
+    West = 6,
+    NorthWest = 7
+}
+
+public class DirectionUtil
+{
+    protected static EDirection[] opposite = new EDirection[]
+    {
+        EDirection.South,
+        EDirection.SouthWest,
+        EDirection.West,
+        EDirection.NorthWest,
+        EDirection.North,
+        EDirection.NorthEast,
+        EDirection.East,
+        EDirection.SouthEast
+    };
+
+    protected static EDirectionBitFlag[] bitFlag = new EDirectionBitFlag[]
+    {
+        EDirectionBitFlag.North,
+        EDirectionBitFlag.NorthEast,
+        EDirectionBitFlag.East,
+        EDirectionBitFlag.SouthEast,
+        EDirectionBitFlag.South,
+        EDirectionBitFlag.SouthWest,
+        EDirectionBitFlag.West,
+        EDirectionBitFlag.NorthWest,
+    };
+
+    protected static Vector2I[] offset = new Vector2I[]
+    {
+        new Vector2I(0, 1),
+        new Vector2I(1, 1),
+        new Vector2I(1, 0),
+        new Vector2I(1, -1),
+        new Vector2I(0, -1),
+        new Vector2I(-1, -1),
+        new Vector2I(-1, 0),
+        new Vector2I(-1, 1),
+    };
+
+    public static Vector2I Offset(EDirection dir)
+    {
+        return offset[(int)dir];
+    }
+
+    public static EDirection Opposite(EDirection dir)
+    {
+        return (EDirection)opposite[(int)dir];
+    }
+
+    public static EDirectionBitFlag BitFlag(EDirection dir)
+    {
+        return (EDirectionBitFlag)bitFlag[(int)dir];
+    }
+}
+
+public enum EDirectionBitFlag
 {
     None = 0,
     North = 1,
@@ -260,7 +388,8 @@ public enum ERemoteEdgeGenerated
 public class NavMeshChunk
 {
     public List<NavMeshRect> navMeshRects = new List<NavMeshRect>();
-    List<NavMeshEdge> navMeshEdges;
+    public List<NavMeshEdge> navMeshEdges;
+    public List<NavMeshEdge>[] remoteNavMeshEdges;
     public int x;
     public int y;
 
@@ -274,6 +403,7 @@ public class NavMeshChunk
         this.x = x;
         this.y = y;
         this.navMeshEdges = navMeshEdges;
+        remoteNavMeshEdges = new List<NavMeshEdge>[8];
     }
 }
 
@@ -524,10 +654,10 @@ public class NavMeshGraph : IGraph<NavMeshRect, NavMeshEdge>
 
     internal List<NavMeshEdge> FindPath(NavigationPoint start, NavigationPoint end)
     {
-        var startRect = new NavMeshRect(start.X, start.Y, 0, 0);
+        var startRect = new NavMeshRect(start.X, start.Y, 0, 0, start.Layer);
         startRect.layer = start.Layer;
 
-        var endRect = new NavMeshRect(end.X, end.Y, 0, 0);
+        var endRect = new NavMeshRect(end.X, end.Y, 0, 0, end.Layer);
         endRect.layer = end.Layer;
 
         var failure = this.astar.FindPath(startRect, endRect);

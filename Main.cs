@@ -775,7 +775,10 @@ public partial class Main : Node2D
                 }
                 else
                 {
-                    navMesh.GenerateChunk(tile.X / worldCollision.ChunkSize(), tile.Y / worldCollision.ChunkSize());
+                    var x = tile.X / (worldCollision.ChunkSize()* worldCollision.TileScale());
+                    var y = tile.Y / (worldCollision.ChunkSize() * worldCollision.TileScale());
+                    navMesh.GenerateChunk((int)x, (int)y);
+                    navMesh.GenerateAllRemoteLinks((int)x, (int)y);
                     NavMeshUpdated = !NavMeshUpdated;
                 }
             }

@@ -2,6 +2,7 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.Drawing;
+using static System.Net.Mime.MediaTypeNames;
 
 public class NavMeshCreator
 {
@@ -170,6 +171,8 @@ public class NavMeshCreator
             }
         }
         var scale = world.TileScale();
+        var chunkX = cx * world.ChunkSize()*scale;
+        var chunkY = cy * world.ChunkSize() * scale;
 
         Rect current = new Rect(0, 0, 0, 0);
         while (true)
@@ -239,7 +242,7 @@ public class NavMeshCreator
             if (bestScore > 0)
             {
                 //TODO rects.Add(best);
-                rects.Add(new NavMeshRect(best.sx* scale, best.sy* scale, best.width * scale, best.height * scale));
+                rects.Add(new NavMeshRect(best.sx* scale+ chunkX, best.sy* scale+ chunkY, best.width * scale, best.height * scale, 0));
 
                 for (int y = best.sy; y < best.sy + best.height; y++)
                 {
@@ -278,5 +281,36 @@ public class NavMeshCreator
             }
         }
         return edges;
+    }
+
+    public (List<NavMeshEdge>, List<NavMeshEdge>) CreateRemoteEdges(ulong fromKey, ulong toKey, List<NavMeshRect> from, List<NavMeshRect> to)
+    {
+        List<NavMeshEdge> fromEdges = new List<NavMeshEdge>();
+        List<NavMeshEdge> toEdges = new List<NavMeshEdge>();
+        for (int fi = 0; fi <from.Count; fi++) {
+            var fromRect  = from[fi];
+            for (int ti = 0; ti < to.Count; ti++)
+            {
+                var toRect = to[ti];
+
+                var edge = fromRect.CreateEdge(toRect);
+                if (edge != null)
+                {
+                    edge.chunkKey = toKey;
+                    edge.toId = ti;
+
+                    fromRect.edges.Add(edge);
+                    fromEdges.Add(edge);
+
+                    var second = toRect.CreateEdge(fromRect);
+                    second.chunkKey = fromKey;
+                    second.toId = fi;
+
+                    toEdges.Add(second);
+                    toRect.edges.Add(second);
+                }
+            }
+        }
+        return (fromEdges, toEdges);
     }
 }
